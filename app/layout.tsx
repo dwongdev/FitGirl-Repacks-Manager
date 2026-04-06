@@ -42,7 +42,7 @@ export default function RootLayout({
         <ColorSchemeScript />
         <meta
           httpEquiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'  style-src 'self' 'unsafe-inline' img-src 'self' data: https: http: *;  font-src 'self' data:; frame-src 'self' https://www.youtube.com; media-src 'self' https: http:;"
+          content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: *; connect-src 'self' https: http:; font-src 'self' data:; frame-src 'self' https://www.youtube.com; media-src 'self' https: http:;"
         />
         <link rel="shortcut icon" href="/favicon.svg" />
         <meta
