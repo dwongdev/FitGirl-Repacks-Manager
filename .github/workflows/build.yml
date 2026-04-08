@@ -29,5 +29,4 @@ jobs:
           IGDB_CLIENT_SECRET: ${{secrets.IGDB_CLIENT_SECRET}}
         with:
           github_token: ${{ secrets.github_token }}
-          build_script_name: build:exe
           release: ${{ startsWith(github.ref, 'refs/tags/v') }}
