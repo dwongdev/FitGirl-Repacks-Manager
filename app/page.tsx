@@ -20,7 +20,6 @@ export default function RootPage() {
   const {
     userData,
     loading: userDataLoading,
-    updateKey,
     updateGameStatus,
   } = useUserData();
   const userGames = useMemo(
