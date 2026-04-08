@@ -3,6 +3,9 @@ import path from "path";
 import fs from "fs";
 import log from "electron-log";
 import serve from "electron-serve";
+import { createWindow, getMainWindow } from "./services/windowService";
+import { notificationService } from "./services/notificationService";
+import { registerAuthHandlers } from "./handlers/auth";
 
 const APP_ID = "com.fitgirl-repacks-manager.app";
 const APP_NAME = "FitGirl Repacks Manager";
@@ -90,10 +93,6 @@ ipcMain.handle("get-auth-callback", () => {
   lastAuthUrl = null;
   return url;
 });
-import { createWindow, getMainWindow } from "./services/windowService";
-import { notificationService } from "./services/notificationService";
-import { registerAuthHandlers } from "./handlers/auth";
-
 (log.transports.file as any).level = "info";
 (log.transports.console as any).level = "info";
 Object.assign(console, log.functions);

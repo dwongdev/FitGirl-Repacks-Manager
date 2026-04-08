@@ -12,6 +12,7 @@ import { registerDownloadHandlers } from "../handlers/downloads";
 import { registerSystemHandlers } from "../handlers/system";
 import { registerWindowHandlers } from "../handlers/window";
 import { registerMapGenieHandlers } from "../handlers/mapgenie";
+import { registerUpdaterHandlers } from "../handlers/updater";
 
 import trayService from "./trayService";
 import { updateJumpList } from "./jumpListService";
@@ -44,7 +45,9 @@ function createLoadingWindow(): void {
     icon: getAssetPath("app_icon.png"),
   });
 
-  loadingWindow.loadFile(getAssetPath("loading.html"));
+  loadingWindow.loadFile(getAssetPath("loading.html"), {
+    query: { version: app.getVersion() },
+  });
   loadingWindow.on("closed", () => (loadingWindow = null));
 }
 
@@ -142,6 +145,7 @@ export function createWindow(): BrowserWindow {
   registerSystemHandlers(mainWindow);
   registerWindowHandlers(mainWindow);
   registerMapGenieHandlers();
+  registerUpdaterHandlers(mainWindow);
 
   mainWindow.on("close", (event) => {
     if (!(app as any).isQuitting) {

@@ -28,20 +28,30 @@ class NotificationService {
     this.supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     console.log(
-      `[NotificationService] Subscribing to ${TABLE_NAME} for new repacks...`,
+      `[NotificationService] Subscribing to "${TABLE_NAME}" (Realtime enabled: ${!!this.supabase})`,
     );
+    console.log(`[NotificationService] URL: ${supabaseUrl}`);
 
     this.channel = this.supabase
       .channel("repack-updates")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: TABLE_NAME },
+        { event: "*", schema: "public", table: TABLE_NAME },
         (payload: any) => {
           console.log(
-            "[NotificationService] NEW REPACK!",
-            payload.new.PostTitle,
+            "[NotificationService] EVENT RECEIVED:",
+            payload.eventType,
+            "on table",
+            payload.table,
           );
-          this.handleNewRepack(payload.new);
+
+          if (payload.new && payload.eventType === "INSERT") {
+            console.log(
+              `[NotificationService] Processing ${payload.eventType} for:`,
+              payload.new.PostTitle,
+            );
+            this.handleNewRepack(payload.new, payload.eventType);
+          }
         },
       );
 
@@ -73,14 +83,20 @@ class NotificationService {
     this.supabase = null;
   }
 
-  private async handleNewRepack(repack: any) {
+  private async handleNewRepack(repack: any, eventType: string = "INSERT") {
     const settings = await userDataService.getData("settings");
     const mode = settings.notificationMode || "all";
 
     if (mode === "disabled") {
-      console.log("[NotificationService] Notifications disabled, skipping.");
+      console.log(
+        "[NotificationService] Notifications disabled in settings, skipping.",
+      );
       return;
     }
+
+    console.log(
+      `[NotificationService] Processing repack (${eventType}): "${repack.PostTitle}" with mode: ${mode}`,
+    );
 
     if (mode === "library") {
       const data = await userDataService.getData();
@@ -106,15 +122,22 @@ class NotificationService {
         `[NotificationService] Match found in library for "${repack.PostTitle}"!`,
       );
     }
+    if (!repack.PostTitle) return;
 
-    const title = repack.PostTitle || "New Repack Added!";
+    const postTitle = repack.PostTitle || "New Repack Added!";
+
+    // In dev mode, we want to allow Test Repack notifications for testing
+    const isDev = !app.isPackaged;
+    if (!isDev && postTitle === "Test Repack") return;
+    if (!postTitle) return;
 
     if (Notification.isSupported()) {
+      const isUpdate = eventType === "UPDATE";
       const notification = new Notification({
         icon: getAssetPath("app_icon.png"),
         urgency: "critical",
-        title: "New FitGirl Repack!",
-        body: title,
+        title: isUpdate ? "Repack Updated!" : "New FitGirl Repack!",
+        body: postTitle,
         silent: false,
       });
 

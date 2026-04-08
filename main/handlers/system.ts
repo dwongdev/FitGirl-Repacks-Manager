@@ -140,6 +140,10 @@ export function registerSystemHandlers(mainWindow: BrowserWindow): void {
     event.returnValue = app.isPackaged;
   });
 
+  ipcMain.on("get-version", (event) => {
+    event.returnValue = app.getVersion();
+  });
+
   ipcMain.on("open-external", (_event, url: string) => {
     shell.openExternal(url);
   });

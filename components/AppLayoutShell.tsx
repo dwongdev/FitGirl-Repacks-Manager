@@ -65,12 +65,27 @@ export function AppLayoutShell({ children }: { children: React.ReactNode }) {
     "back" | "forward" | null
   >(null);
   const [isPrimed, setIsPrimed] = React.useState(false);
+  const [hasUpdateAvailable, setHasUpdateAvailable] = React.useState(false);
+
+  React.useEffect(() => {
+    const handleUpdate = () => {
+      setHasUpdateAvailable(true);
+    };
+    window.addEventListener("fit:update-available", handleUpdate);
+    return () => window.removeEventListener("fit:update-available", handleUpdate);
+  }, []);
 
   React.useEffect(() => {
     setIsClient(true);
     const electron = (window as any).electron;
 
     electron.getActiveDownloads().then(setActiveDownloads);
+    
+    // Trigger the startup update check
+    if (electron.checkForUpdatesAndNotify) {
+      electron.checkForUpdatesAndNotify();
+    }
+
     const unsub = electron.onDownloadProgress((progress: any) => {
       setActiveDownloads((prev) => {
         if (progress.status === "deleted") {
@@ -249,6 +264,34 @@ export function AppLayoutShell({ children }: { children: React.ReactNode }) {
             >
               <IconSettings size={20} />
             </ActionIcon>
+
+            {hasUpdateAvailable && (
+              <Box pos="relative" style={{ WebkitAppRegion: "no-drag" as any }}>
+                <ActionIcon
+                  variant="filled"
+                  color="blue"
+                  radius="md"
+                  size="lg"
+                  onClick={() => window.dispatchEvent(new CustomEvent("fit:open-update-modal"))}
+                  title="Update Available"
+                  className="animate-pulse"
+                >
+                  <IconSparkles size={20} />
+                </ActionIcon>
+                <Badge
+                  variant="filled"
+                  color="red"
+                  size="xs"
+                  circle
+                  style={{
+                    position: "absolute",
+                    top: -5,
+                    right: -5,
+                    border: "2px solid var(--mantine-color-body)",
+                  }}
+                />
+              </Box>
+            )}
             <ActionIcon
               variant="light"
               color="green"

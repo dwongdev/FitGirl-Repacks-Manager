@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("electron", {
   toggleDevTools: () => ipcRenderer.send("window-devtools"),
   openPath: (path: string) => ipcRenderer.invoke("open-path", path),
   isDev: !ipcRenderer.sendSync("is-packaged"),
+  getVersion: () => ipcRenderer.sendSync("get-version"),
 
   // Game detection and launching
   selectFolder: () => ipcRenderer.invoke("select-folder"),
@@ -121,6 +122,34 @@ contextBridge.exposeInMainWorld("electron", {
   // Auth/Notification coordination
   notifyAuthSignin: () => ipcRenderer.invoke("notify-auth-signin"),
   notifyAuthSignout: () => ipcRenderer.invoke("notify-auth-signout"),
+
+  // Auto-updater
+  checkForUpdates: () => ipcRenderer.invoke("updater-check"),
+  downloadUpdate: (url: string, assetName: string) =>
+    ipcRenderer.invoke("updater-download", url, assetName),
+  cancelUpdate: () => ipcRenderer.invoke("updater-cancel"),
+  installUpdate: (installerPath: string) =>
+    ipcRenderer.invoke("updater-install", installerPath),
+  checkForUpdatesAndNotify: () =>
+    ipcRenderer.invoke("updater-check-and-notify"),
+  onUpdateDownloadProgress: (callback: (progress: any) => void) => {
+    const subscription = (_event: any, progress: any) => callback(progress);
+    ipcRenderer.on("updater-download-progress", subscription);
+    return () =>
+      ipcRenderer.removeListener("updater-download-progress", subscription);
+  },
+  onNavigateToSettings: (callback: (data: any) => void) => {
+    const subscription = (_event: any, data: any) => callback(data);
+    ipcRenderer.on("navigate-to-settings", subscription);
+    return () =>
+      ipcRenderer.removeListener("navigate-to-settings", subscription);
+  },
+  onShowUpdateModal: (callback: (result: any) => void) => {
+    const subscription = (_event: any, result: any) => callback(result);
+    ipcRenderer.on("show-update-modal", subscription);
+    return () =>
+      ipcRenderer.removeListener("show-update-modal", subscription);
+  },
 });
 
 // Basic preload script functionality
