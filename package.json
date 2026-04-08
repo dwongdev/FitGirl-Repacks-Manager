@@ -11,8 +11,9 @@
   "scripts": {
     "start": "next start",
     "lint": "next lint",
-    "dev": "concurrently \"next dev\" \"tsc -p tsconfig.main.json -w\" \"wait-on dist/index.js && wait-on tcp:3000 && electron .\"",
+    "dev": "concurrently \"next dev\" \"wait-on dist/index.js && wait-on tcp:3000 && electron .\"",
     "build": "next build && tsc -p tsconfig.main.json",
+    "compile:main": "tsc -p tsconfig.main.json",
     "build:exe": "npm run build && electron-builder"
   },
   "build": {
