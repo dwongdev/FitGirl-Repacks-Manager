@@ -10,14 +10,12 @@
   "main": "build/dist/index.js",
   "scripts": {
     "main:dev": "next dev",
-    "build:next": "npm run build:next && (if exist build\\out (rmdir /s /q build\\out)) && mkdir build\\out && xcopy /e /q out build\\out\\ && rmdir /s /q out && npm run build:main",
     "start": "next start",
     "lint": "next lint",
     "electron": "electron .",
     "dev": "concurrently \"npm run main:dev\" \"tsc -p tsconfig.main.json -w\" \"wait-on build/dist/index.js && wait-on tcp:3000 && electron .\"",
     "scrape:full": "node scripts/scrape_full_site.js",
     "build": "next build",
-    "build:main": "tsc -p tsconfig.main.json && node scripts/obfuscate.js",
     "build:exe": "npm run build && electron-builder"
   },
   "build": {
