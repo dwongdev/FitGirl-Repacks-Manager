@@ -1,8 +1,14 @@
-import { supabase } from "./supabase";
+import { pb } from "./pocketbase";
+
+export const ensureHttps = (url: string) => {
+  if (!url) return url;
+  if (url.startsWith("//")) return `https:${url}`;
+  return url;
+};
 
 export interface GameUpdate {
-  Title: string;
-  Url: string;
+  Name: string;
+  Link: string;
 }
 
 export interface MediaItem {
@@ -23,6 +29,7 @@ export interface TorrentLink {
 }
 
 export interface FitGirlPost {
+  id: string; // PocketBase internal ID
   PostID: string;
   Timestamp: string;
   PostTitle: string;
@@ -57,7 +64,7 @@ export interface PostsResponse {
   total: number;
 }
 
-const TABLE_NAME = process.env.NEXT_PUBLIC_SUPABASE_TABLE_NAME || "FitData";
+const COLLECTION_NAME = "FitData";
 const GENERIC_WORDS = new Set([
   "the",
   "and",
@@ -106,94 +113,186 @@ const GENERIC_WORDS = new Set([
   "v4",
 ]);
 
+interface ThinIndexItem {
+  id: string;
+  PostID: string;
+  Timestamp: string;
+}
+
 class FitGirlService {
+  private thinIndex: ThinIndexItem[] | null = null;
+  private lastIndexFetch: number = 0;
+  private readonly INDEX_CACHE_TTL = 1000 * 60 * 5; // 5 minutes
+
+  private async getThinIndex(): Promise<ThinIndexItem[]> {
+    const now = Date.now();
+    if (this.thinIndex && now - this.lastIndexFetch < this.INDEX_CACHE_TTL) {
+      return this.thinIndex;
+    }
+
+    try {
+      const resp = await fetch(`${pb.baseUrl}/api/fitgirl/index`);
+      if (!resp.ok) throw new Error("Failed to fetch index");
+      this.thinIndex = await resp.json();
+      this.lastIndexFetch = now;
+      return this.thinIndex || [];
+    } catch (err) {
+      console.error("Failed to fetch thin index:", err);
+      return [];
+    }
+  }
+
+  private buildSearchFilter(search: string): string {
+    if (!search) return "";
+
+    // Normalize: replace some characters with space before splitting
+    let clean = search.toLowerCase();
+
+    // Split into words by anything non-alphanumeric
+    const words = clean
+      .split(/[^a-z0-9]/)
+      .map((w) => w.trim())
+      .filter((w) => w.length >= 2 || /\d/.test(w)) // Keep words like "G2" or "3", ignore "a", "s"
+      .filter((w) => !GENERIC_WORDS.has(w));
+
+    if (words.length === 0) {
+      // Fallback if everything is filtered (e.g. searching for "The")
+      const literal = search.replace(/"/g, '\\"');
+      return `PostTitle ~ "${literal}"`;
+    }
+
+    return words.map((w) => `PostTitle ~ "${w}"`).join(" && ");
+  }
+
+
   async getLatestPosts(
     page = 1,
     pageSize = 20,
     filters: SearchFilters = {},
   ): Promise<PostsResponse> {
     try {
-      const from = (page - 1) * pageSize;
-      const to = from + pageSize - 1;
-
-      let query = supabase.from(TABLE_NAME).select("*", { count: "exact" });
-
       const effectiveGenres = [...(filters.genres || [])];
-      if (
-        filters.mode === "hypervisor" &&
-        !effectiveGenres.includes("HYPERVISOR")
-      ) {
-        effectiveGenres.push("HYPERVISOR");
-      }
-      if (filters.mode === "top" && !effectiveGenres.includes("Top")) {
-        effectiveGenres.push("Top");
-      }
-      if (filters.mode === "top-week" && !effectiveGenres.includes("TopWeek")) {
-        effectiveGenres.push("TopWeek");
-      }
-      if (
-        filters.mode === "top-month" &&
-        !effectiveGenres.includes("TopMonth")
-      ) {
-        effectiveGenres.push("TopMonth");
-      }
-      if (filters.mode === "top-year" && !effectiveGenres.includes("TopYear")) {
-        effectiveGenres.push("TopYear");
+      const tags: Record<string, string> = {
+        hypervisor: "HYPERVISOR",
+        top: "Top",
+        "top-week": "TopWeek",
+        "top-month": "TopMonth",
+        "top-year": "TopYear",
+      };
+
+      if (filters.mode && tags[filters.mode]) {
+        const tag = tags[filters.mode];
+        if (!effectiveGenres.includes(tag)) effectiveGenres.push(tag);
       }
 
-      if (filters.mode === "top-week") {
-        query = query.order("TopRankWeek", { ascending: true });
-      } else if (filters.mode === "top-month") {
-        query = query.order("TopRankMonth", { ascending: true });
-      } else if (filters.mode === "top-year") {
-        query = query.order("TopRankYear", { ascending: true });
-      } else {
-        query = query.order("Timestamp", { ascending: false });
-      }
+      const queryFilters: string[] = [];
 
       if (filters.search) {
-        query = query.ilike("PostTitle", `%${filters.search}%`);
+        queryFilters.push(`(${this.buildSearchFilter(filters.search)})`);
       }
 
       if (effectiveGenres.length > 0) {
-        query = query.filter("Genres", "cs", JSON.stringify(effectiveGenres));
+        effectiveGenres.forEach((g) => {
+          queryFilters.push(`Genres ~ "${g}"`);
+        });
       }
 
       if (filters.dateFrom) {
-        query = query.gte("Timestamp", filters.dateFrom);
+        queryFilters.push(`Timestamp >= "${filters.dateFrom}"`);
       }
 
       if (filters.dateTo) {
-        query = query.lte("Timestamp", filters.dateTo);
+        queryFilters.push(`Timestamp <= "${filters.dateTo}"`);
       }
 
-      if (filters.unreadOnly && filters.readIds && filters.readIds.length > 0) {
-        query = query.not("PostID", "in", filters.readIds);
+      // Note: We no longer add every readId to the query filter to avoid massive URL lengths.
+      // Instead, we will filter them in the service layer if the list is too long.
+      const useServerSideExclusion =
+        filters.unreadOnly &&
+        filters.readIds &&
+        filters.readIds.length > 0 &&
+        filters.readIds.length < 100;
+
+      if (useServerSideExclusion) {
+        const ids = filters
+          .readIds!.map((id) => `id != "${id}"`) // Optimized for internal IDs
+          .join(" && ");
+        queryFilters.push(`(${ids})`);
       }
 
       if (!filters.showAdult) {
-        query = query.not("Genres", "cs", JSON.stringify(["Adult"]));
-        query = query.not("Genres", "cs", JSON.stringify(["Hentai"]));
-        query = query.not("Genres", "cs", JSON.stringify(["Nudity"]));
+        queryFilters.push('Genres !~ "Adult"');
+        queryFilters.push('Genres !~ "Hentai"');
+        queryFilters.push('Genres !~ "Nudity"');
       }
 
-      const { data, error, count } = await query.range(from, to);
-      if (error) throw error;
+      let sort = "-Timestamp";
+      if (filters.mode === "top-week") sort = "+TopRankWeek";
+      else if (filters.mode === "top-month") sort = "+TopRankMonth";
+      else if (filters.mode === "top-year") sort = "+TopRankYear";
 
-      const items = data ? data.map((row) => this.mapRowToPostSync(row)) : [];
+      let finalItems: FitGirlPost[] = [];
+      let totalItems = 0;
+
+      if (
+        filters.unreadOnly &&
+        filters.readIds &&
+        filters.readIds.length >= 100
+      ) {
+        // --- High-Performance Thin Index Filtering ---
+        const index = await this.getThinIndex();
+
+        // Use a Set of internal record IDs for the fastest possible check
+        const readSet = new Set(filters.readIds);
+
+        // 1. Filter the entire index locally (Instant!)
+        // Note: readIds from the new relation-based system are record IDs (e.g. "abc123xyz")
+        const unreadIndexItems = index.filter((item) => !readSet.has(item.id));
+        totalItems = unreadIndexItems.length;
+
+        // 2. Identify the specific IDs for the requested page
+        const start = (page - 1) * pageSize;
+        const pageItems = unreadIndexItems.slice(start, start + pageSize);
+
+        if (pageItems.length > 0) {
+          // 3. Targeted fetch of ONLY the full records we need
+          const filter = pageItems
+            .map((item) => `id = "${item.id}"`)
+            .join(" || ");
+          const batch = await pb
+            .collection(COLLECTION_NAME)
+            .getList(1, pageSize, {
+              filter: filter,
+              sort: sort,
+            });
+          finalItems = batch.items.map((row) => this.mapRowToPostSync(row));
+        }
+      } else {
+        // Regular fetching with server-side filtering (efficient for small filters)
+        const list = await pb
+          .collection(COLLECTION_NAME)
+          .getList(page, pageSize, {
+            filter: queryFilters.join(" && "),
+            sort: sort,
+          });
+
+        finalItems = list.items.map((row) => this.mapRowToPostSync(row));
+        totalItems = list.totalItems;
+      }
 
       return {
-        items,
-        total: count || 0,
+        items: finalItems,
+        total: totalItems,
       };
     } catch (error) {
-      console.error("Error fetching latest posts from Supabase:", error);
+      console.error("Error fetching latest posts from PocketBase:", error);
       return { items: [], total: 0 };
     }
   }
 
   private mapRowToPostSync(row: any): FitGirlPost {
     return {
+      id: row.id,
       PostID: row.PostID,
       Timestamp: row.Timestamp,
       PostTitle: row.PostTitle || "",
@@ -215,11 +314,12 @@ class FitGirlService {
 
   async getAvailableGenres(): Promise<string[]> {
     try {
-      const { data, error } = await supabase.from(TABLE_NAME).select("Genres");
-      if (error) throw error;
+      const records = await pb.collection(COLLECTION_NAME).getFullList({
+        fields: "Genres",
+      });
 
       const genres = new Set<string>();
-      data?.forEach((row) => {
+      records.forEach((row) => {
         if (Array.isArray(row.Genres)) {
           row.Genres.forEach((g) => genres.add(g));
         }
@@ -227,7 +327,7 @@ class FitGirlService {
 
       return Array.from(genres).sort();
     } catch (error) {
-      console.error("Error fetching dynamic genres:", error);
+      console.error("Error fetching dynamic genres from PocketBase:", error);
       return [
         "Action",
         "Adventure",
@@ -248,33 +348,31 @@ class FitGirlService {
 
   async scrapeSinglePost(url: string): Promise<FitGirlPost | null> {
     try {
-      const { data, error } = await supabase
-        .from(TABLE_NAME)
-        .select("*")
-        .eq("PostLink", url)
-        .maybeSingle();
+      const record = await pb
+        .collection(COLLECTION_NAME)
+        .getFirstListItem(`PostLink = "${url}"`);
 
-      if (data) return this.mapRowToPostSync(data);
+      if (record) return this.mapRowToPostSync(record);
       return null;
     } catch (error) {
-      console.error(`Error resolving single post ${url} from Supabase:`, error);
+      console.error(
+        `Error resolving single post ${url} from PocketBase:`,
+        error,
+      );
       return null;
     }
   }
 
   async getPostByID(postId: string): Promise<FitGirlPost | null> {
     try {
-      const { data, error } = await supabase
-        .from(TABLE_NAME)
-        .select("*")
-        .eq("PostID", postId)
-        .maybeSingle();
+      const record = await pb
+        .collection(COLLECTION_NAME)
+        .getFirstListItem(`PostID = "${postId}"`);
 
-      if (error) throw error;
-      if (data) return this.mapRowToPostSync(data);
+      if (record) return this.mapRowToPostSync(record);
       return null;
     } catch (error) {
-      console.error(`Error fetching post ${postId} from Supabase:`, error);
+      console.error(`Error fetching post ${postId} from PocketBase:`, error);
       return null;
     }
   }
@@ -313,31 +411,19 @@ class FitGirlService {
 
   async searchForRepack(gameTitle: string): Promise<FitGirlPost[]> {
     const normalizedSearch = this.normalizeTitle(gameTitle);
-    if (!normalizedSearch) return [];
+    const searchFilter = this.buildSearchFilter(gameTitle);
+    if (!searchFilter) return [];
 
     try {
+      const list = await pb.collection(COLLECTION_NAME).getList(1, 100, {
+        filter: searchFilter,
+      });
+
       const searchWords = normalizedSearch
         .split(/\s+/)
         .filter((w) => w.length > 2 || /\d/.test(w));
 
-      if (searchWords.length === 0) return [];
-
-      let query = supabase.from(TABLE_NAME).select("*").limit(100);
-
-      const significantWords = searchWords.filter((w) => !GENERIC_WORDS.has(w));
-      const filterWord =
-        significantWords.sort((a, b) => b.length - a.length)[0] ||
-        searchWords.sort((a, b) => b.length - a.length)[0] ||
-        searchWords[0];
-
-      query = query.ilike("PostTitle", `%${filterWord}%`);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      const allPosts = data
-        ? data.map((row) => this.mapRowToPostSync(row))
-        : [];
+      const allPosts = list.items.map((row) => this.mapRowToPostSync(row));
 
       const matches: { post: FitGirlPost; score: number }[] = [];
 
@@ -382,13 +468,13 @@ class FitGirlService {
           score = score / wordOverlap;
         } else {
           const significantSearchWords = searchWords.filter(
-            (w) => !GENERIC_WORDS.has(w),
+            (w: string) => !GENERIC_WORDS.has(w),
           );
           const postWords = normalizedPostTitle
             .split(/\s+/)
-            .filter((w) => w.length > 2 || /\d/.test(w));
+            .filter((w: string) => w.length > 2 || /\d/.test(w));
           const significantPostWords = postWords.filter(
-            (w) => !GENERIC_WORDS.has(w),
+            (w: string) => !GENERIC_WORDS.has(w),
           );
 
           const intersection = significantSearchWords.filter((w) =>
@@ -451,22 +537,21 @@ class FitGirlService {
       matches.sort((a, b) => a.score - b.score);
       return matches.map((m) => m.post);
     } catch (err) {
-      console.error("Search failed on Supabase:", err);
+      console.error("Search failed on pocketbase:", err);
       return [];
     }
   }
 
-  async getIdsOlderThan(timestamp: string): Promise<string[]> {
+  async getIdsOlderThan(timestamp: string): Promise<{ id: string }[]> {
     try {
-      const { data, error } = await supabase
-        .from(TABLE_NAME)
-        .select("PostID")
-        .lte("Timestamp", timestamp);
+      const records = await pb.collection(COLLECTION_NAME).getFullList({
+        filter: `Timestamp <= "${timestamp}"`,
+        fields: "id",
+      });
 
-      if (error) throw error;
-      return data ? data.map((d) => d.PostID) : [];
+      return records.map((d) => ({ id: d.id }));
     } catch (err) {
-      console.error("Error fetching older IDs from Supabase:", err);
+      console.error("Error fetching older IDs from PocketBase:", err);
       return [];
     }
   }
@@ -488,6 +573,39 @@ class FitGirlService {
       }
     }
     return array[t.length][s.length];
+  }
+
+  /**
+   * Optimized atomic toggle for read status
+   */
+  async toggleReadAtomic(
+    userDataId: string,
+    repackRecordId: string,
+    isRead: boolean,
+  ): Promise<void> {
+    try {
+      await pb.collection("user_data").update(userDataId, {
+        [isRead ? "readRepacks+" : "readRepacks-"]: repackRecordId,
+      });
+    } catch (err) {
+      console.error("Failed to toggle read status atomically:", err);
+      throw err;
+    }
+  }
+
+  /**
+   * Helper to find the user's userData record
+   */
+  async getUserDataRecord(): Promise<any> {
+    try {
+      const user = pb.authStore.model;
+      if (!user) return null;
+      return await pb
+        .collection("user_data")
+        .getFirstListItem(`user = "${user.id}"`);
+    } catch (err) {
+      return null;
+    }
   }
 }
 

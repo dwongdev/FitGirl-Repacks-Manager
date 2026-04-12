@@ -41,10 +41,10 @@ import {
   IconDownload,
   IconSearch,
 } from "@tabler/icons-react";
-import { Carousel } from "@mantine/carousel";
+import { RepackCard } from "../../components/RepackCard";
 import { GameDetails } from "../../components/GameDetails";
 import { IgdbService, Game } from "../../lib/igdb";
-import fitgirlService from "../../lib/fitgirl";
+import fitgirlService, { ensureHttps } from "../../lib/fitgirl";
 import { useUserData } from "../../lib/useUserData";
 import { DateInput } from "@mantine/dates";
 import { useOnlineStatus } from "../../lib/useOnlineStatus";
@@ -112,7 +112,8 @@ function PickerRow({
   );
 }
 
-interface FitGirlRepack {
+export interface FitGirlRepack {
+  id: string;
   PostID: string;
   Timestamp: string;
   PostTitle: string;
@@ -131,11 +132,6 @@ interface FitGirlRepack {
   Languages?: string;
 }
 
-const ensureHttps = (url: string) => {
-  if (!url) return url;
-  if (url.startsWith("//")) return `https:${url}`;
-  return url;
-};
 
 function RepacksPageContent() {
   const router = useRouter();
@@ -162,6 +158,21 @@ function RepacksPageContent() {
     () => userData?.repackIgdbMapping || {},
     [userData?.repackIgdbMapping],
   );
+  // --- ONE-TIME CACHE PURGE (MIGRATION) ---
+  useEffect(() => {
+    if (userData?.readRepacks && userData.readRepacks.length > 0) {
+      const hasOldFormat = userData.readRepacks.some((id) =>
+        id.includes("post-"),
+      );
+      if (hasOldFormat) {
+        const cleanList = userData.readRepacks.filter(
+          (id) => !id.includes("post-"),
+        );
+        updateKey("readRepacks", cleanList);
+      }
+    }
+  }, [userData?.readRepacks]);
+
   const readPosts = useMemo(
     () => new Set(userData?.readRepacks || []),
     [userData?.readRepacks],
@@ -234,15 +245,10 @@ function RepacksPageContent() {
 
     try {
       const searchTerm = cleanTitle(title);
-      console.log(`Searching IGDB for: "${searchTerm}" (original: "${title}")`);
       let results = await IgdbService.getGames("search", searchTerm, 1, 8);
-      console.log("Results for primary search:", results);
 
       if (results.length === 0 && searchTerm.includes(":")) {
         const fallbackTerm = searchTerm.split(":")[0].trim();
-        console.log(
-          `Primary search failed. Trying fallback: "${fallbackTerm}"`,
-        );
         results = await IgdbService.getGames("search", fallbackTerm, 1, 8);
       }
 
@@ -265,18 +271,36 @@ function RepacksPageContent() {
     }
   };
 
-  const toggleRead = async (e: React.MouseEvent, postID: string) => {
+  const toggleRead = async (e: React.MouseEvent, repack: FitGirlRepack) => {
     e.stopPropagation();
     const newRead = new Set(readPosts);
-    if (newRead.has(postID)) {
-      newRead.delete(postID);
+    const isAdding = !newRead.has(repack.id);
+
+    if (!isAdding) {
+      newRead.delete(repack.id);
     } else {
-      newRead.add(postID);
+      newRead.add(repack.id);
     }
+
+    // 1. Update local state instantly for UI responsiveness
     updateKey("readRepacks", Array.from(newRead));
 
-    if (unreadOnly && !newRead.has(postID)) {
-      setRepacks((prev) => prev.filter((r) => r.PostID !== postID));
+    // 2. Perform atomic update in background (optimized!)
+    try {
+      const userDataRecord = await fitgirlService.getUserDataRecord();
+      if (userDataRecord) {
+        await fitgirlService.toggleReadAtomic(
+          userDataRecord.id,
+          repack.id,
+          isAdding,
+        );
+      }
+    } catch (err) {
+      console.error("Atomic toggle failed:", err);
+    }
+
+    if (unreadOnly && !isAdding) {
+      setRepacks((prev) => prev.filter((r) => r.id !== repack.id));
     }
   };
 
@@ -286,14 +310,21 @@ function RepacksPageContent() {
   ) => {
     e.stopPropagation();
     try {
-      const olderIds = await fitgirlService.getIdsOlderThan(repack.Timestamp);
-      if (olderIds && olderIds.length > 0) {
+      // Use internal IDs for marking as read
+      const olderItems = await fitgirlService.getIdsOlderThan(repack.Timestamp);
+      if (olderItems && olderItems.length > 0) {
         const next = new Set(readPosts);
-        olderIds.forEach((id: string) => next.add(id));
-        updateKey("readRepacks", Array.from(next));
+        olderItems.forEach((item: { id: string }) => next.add(item.id));
+
+        const newReadList = Array.from(next);
+        updateKey("readRepacks", newReadList);
+
+        // For massive updates, we can either use atomic loop or just let bulk sync handle it.
+        // Given this is a batch action, the current bulk sync is actually okay here,
+        // but it's much faster now because it's only done once.
 
         if (unreadOnly) {
-          setRepacks((prev) => prev.filter((r) => !next.has(r.PostID)));
+          setRepacks((prev) => prev.filter((r) => !next.has(r.id)));
         }
       }
     } catch (error) {
@@ -313,13 +344,11 @@ function RepacksPageContent() {
           search: debouncedSearch,
           genres: selectedGenres,
           unreadOnly,
-          showAdult,
           readIds: unreadOnly ? Array.from(readPosts) : undefined,
           dateFrom: dateFrom || undefined,
           dateTo: dateTo || undefined,
           mode: filterMode,
         });
-        console.log("Repacks fetched:", JSON.stringify(result, null, 2));
         setRepacks(result?.items || []);
         setTotalRepacks(result?.total || 0);
 
@@ -395,7 +424,7 @@ function RepacksPageContent() {
       updateKey("readRepacks", Array.from(newRead));
 
       if (unreadOnly) {
-        setRepacks((prev) => prev.filter((r) => r.PostID !== repack.PostID));
+        setRepacks((prev) => prev.filter((r) => r.id !== repack.id));
       }
     }
 
@@ -424,14 +453,10 @@ function RepacksPageContent() {
 
     try {
       const searchTerm = cleanTitle(repack.PostTitle);
-      console.log(`Searching IGDB for details: "${searchTerm}"`);
       let results = await IgdbService.getGames("search", searchTerm, 1, 8);
 
       if (results.length === 0 && searchTerm.includes(":")) {
         const fallbackTerm = searchTerm.split(":")[0].trim();
-        console.log(
-          `Primary details search failed. Trying fallback: "${fallbackTerm}"`,
-        );
         results = await IgdbService.getGames("search", fallbackTerm, 1, 8);
       }
 
@@ -756,454 +781,19 @@ function RepacksPageContent() {
       ) : (
         <>
           <Stack gap="xl">
-            {repacks.map((repack) => {
-              const isRead = readPosts.has(repack.PostID);
-              const repackMedia = (repack.Media || [])
-                .filter((m) => m.url !== repack.CoverImage)
-                .sort((a, b) => (a.type === "video" ? -1 : 1));
-
-              return (
-                <Card
-                  key={repack.PostID}
-                  withBorder
-                  radius="lg"
-                  p={0}
-                  bg="var(--mantine-color-dark-8)"
-                  style={{
-                    overflow: "hidden",
-                    transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-                    border: isRead
-                      ? "1px solid var(--mantine-color-dark-4)"
-                      : "1px solid var(--mantine-color-blue-7)",
-                    boxShadow: isRead ? "none" : "0 10px 40px rgba(0,0,0,0.5)",
-                    transform: "translateY(0)",
-                    opacity: isRead ? 0.85 : 1,
-                  }}
-                  className="repack-row-card"
-                  onClick={() => handleRepackClick(repack)}
-                >
-                  <Group wrap="nowrap" align="stretch" gap={0}>
-                    {/* Cover Section */}
-                    <Box
-                      style={{
-                        width: 200,
-                        minWidth: 200,
-                        position: "relative",
-                        borderRight: "1px solid var(--mantine-color-dark-5)",
-                      }}
-                    >
-                      <Image
-                        src={ensureHttps(repack.CoverImage)}
-                        alt={repack.PostTitle}
-                        height={280}
-                        fit="cover"
-                        fallbackSrc="https://placehold.co/200x280?text=No+Cover"
-                      />
-
-                      {/* Overlays */}
-                      <Box
-                        style={{
-                          position: "absolute",
-                          top: 12,
-                          left: 12,
-                          zIndex: 10,
-                        }}
-                      >
-                        <Stack gap={8} align="flex-start">
-                          {!isRead && (
-                            <Badge
-                              variant="filled"
-                              color="blue.6"
-                              size="lg"
-                              radius="sm"
-                              style={{
-                                boxShadow: "0 0 15px rgba(34, 139, 230, 0.5)",
-                                fontWeight: 900,
-                              }}
-                            >
-                              NEW
-                            </Badge>
-                          )}
-
-                          {repack.Genres?.includes("HYPERVISOR") && (
-                            <Badge
-                              variant="filled"
-                              color="red.7"
-                              size="xl"
-                              radius="sm"
-                              style={{
-                                boxShadow: "0 0 25px rgba(230, 34, 60, 0.7)",
-                                fontWeight: 950,
-                                letterSpacing: 1.5,
-                                border: "1px solid rgba(255,255,255,0.2)",
-                              }}
-                            >
-                              HYPERVISOR
-                            </Badge>
-                          )}
-                        </Stack>
-                      </Box>
-
-                      <Box
-                        style={{
-                          position: "absolute",
-                          top: 12,
-                          right: 12,
-                          zIndex: 10,
-                        }}
-                      >
-                        <Group gap={8}>
-                          <Tooltip label="Mark this and all older as read">
-                            <ActionIcon
-                              variant="filled"
-                              color="dark.4"
-                              onClick={(e) => markOlderAsRead(e, repack)}
-                              size="lg"
-                              radius="md"
-                              style={{
-                                backdropFilter: "blur(12px)",
-                                backgroundColor: "rgba(26, 27, 30, 0.7)",
-                              }}
-                            >
-                              <Stack gap={0} align="center">
-                                <IconCheck size={16} />
-                                <IconClock
-                                  size={10}
-                                  style={{ marginTop: -4 }}
-                                />
-                              </Stack>
-                            </ActionIcon>
-                          </Tooltip>
-
-                          <ActionIcon
-                            variant="filled"
-                            color={isRead ? "dark.4" : "blue.6"}
-                            onClick={(e) => toggleRead(e, repack.PostID)}
-                            size="lg"
-                            radius="md"
-                            style={{
-                              backdropFilter: "blur(12px)",
-                              backgroundColor: isRead
-                                ? "rgba(26, 27, 30, 0.7)"
-                                : "rgba(34, 139, 230, 0.85)",
-                            }}
-                          >
-                            {isRead ? (
-                              <IconEyeOff size={20} />
-                            ) : (
-                              <IconEye size={20} />
-                            )}
-                          </ActionIcon>
-                        </Group>
-                      </Box>
-
-                      {/* Sizes Overlay */}
-                      <Box
-                        style={{
-                          position: "absolute",
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          padding: "30px 14px 14px",
-                          background:
-                            "linear-gradient(to top, rgba(0,0,0,0.9), transparent)",
-                          zIndex: 5,
-                        }}
-                      >
-                        <Stack gap={4}>
-                          <Group justify="space-between" gap={4}>
-                            <Text
-                              size="xs"
-                              c="cyan.4"
-                              fw={800}
-                              tt="uppercase"
-                              lts={1}
-                            >
-                              Repack
-                            </Text>
-                            <Badge
-                              color="cyan.8"
-                              variant="filled"
-                              size="sm"
-                              radius="sm"
-                            >
-                              {repack.PostFileRepackSize}
-                            </Badge>
-                          </Group>
-                          <Group justify="space-between" gap={4}>
-                            <Text
-                              size="xs"
-                              c="gray.5"
-                              fw={800}
-                              tt="uppercase"
-                              lts={1}
-                            >
-                              Original
-                            </Text>
-                            <Text size="xs" c="white" fw={800}>
-                              {repack.PostFileOriginalSize}
-                            </Text>
-                          </Group>
-                        </Stack>
-                      </Box>
-                    </Box>
-
-                    {/* Content Section */}
-                    <Box
-                      style={{
-                        flex: 1,
-                        backgroundColor: "var(--mantine-color-dark-7)",
-                      }}
-                    >
-                      <Stack gap={0} h="100%">
-                        {/* Screenshots Carousel */}
-                        <Box
-                          style={{
-                            height: 180,
-                            position: "relative",
-                            backgroundColor: "#000",
-                          }}
-                        >
-                          <Carousel
-                            withControls={repackMedia.length > 0}
-                            withIndicators={repackMedia.length > 0}
-                            slideSize="50%"
-                            styles={{
-                              root: { height: "100%" },
-                              viewport: { height: "100%" },
-                              container: { height: "100%" },
-                              control: {
-                                backgroundColor: "rgba(0,0,0,0.5)",
-                                border: "none",
-                                backdropFilter: "blur(6px)",
-                                color: "white",
-                              },
-                              indicator: {
-                                width: 10,
-                                height: 4,
-                                transition: "width 250ms ease",
-                                "&[dataActive]": {
-                                  width: 30,
-                                  backgroundColor:
-                                    "var(--mantine-color-blue-5)",
-                                },
-                              },
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {repackMedia.length > 0 ? (
-                              repackMedia.map((media, idx) => (
-                                <Carousel.Slide key={idx}>
-                                  {media.type === "video" ? (
-                                    <video
-                                      src={media.url}
-                                      style={{
-                                        width: "100%",
-                                        height: "100%",
-                                        objectFit: "cover",
-                                      }}
-                                      muted
-                                      autoPlay
-                                      loop
-                                      playsInline
-                                    />
-                                  ) : (
-                                    <Image
-                                      alt={repack.PostTitle}
-                                      src={media.url}
-                                      height="100%"
-                                      fit="cover"
-                                    />
-                                  )}
-                                </Carousel.Slide>
-                              ))
-                            ) : (
-                              <Carousel.Slide>
-                                <Center h="100%" bg="dark.7">
-                                  <IconDeviceGamepad2 size={40} opacity={0.1} />
-                                </Center>
-                              </Carousel.Slide>
-                            )}
-                          </Carousel>
-                        </Box>
-
-                        {/* Text Content */}
-                        <Box
-                          p="lg"
-                          style={{
-                            flex: 1,
-                            display: "flex",
-                            flexDirection: "column",
-                          }}
-                        >
-                          <Group
-                            justify="space-between"
-                            align="flex-start"
-                            wrap="nowrap"
-                            mb="sm"
-                          >
-                            <Stack gap={2} style={{ flex: 1 }}>
-                              <Title
-                                order={2}
-                                size="h3"
-                                style={{ lineHeight: 1.1, letterSpacing: -0.5 }}
-                              >
-                                {repack.PostTitle}
-                              </Title>
-                              <Group gap={6}>
-                                <IconClock
-                                  size={12}
-                                  color="var(--mantine-color-dark-3)"
-                                />
-                                <Text size="xs" c="dimmed" fw={500}>
-                                  {new Date(
-                                    repack.Timestamp,
-                                  ).toLocaleDateString(undefined, {
-                                    dateStyle: "long",
-                                  })}
-                                </Text>
-                              </Group>
-                            </Stack>
-
-                            <Group gap={6}>
-                              {(
-                                [
-                                  {
-                                    status: "favorite",
-                                    icon: IconHeart,
-                                    color: "red",
-                                    label: "Favorite",
-                                  },
-                                  {
-                                    status: "playing",
-                                    icon: IconDeviceGamepad2,
-                                    color: "blue",
-                                    label: "Playing",
-                                  },
-                                  {
-                                    status: "completed",
-                                    icon: IconCheck,
-                                    color: "green",
-                                    label: "Completed",
-                                  },
-                                  {
-                                    status: "wishlist",
-                                    icon: IconBookmark,
-                                    color: "orange",
-                                    label: "Wishlist",
-                                  },
-                                  {
-                                    status: "downloaded",
-                                    icon: IconDownload,
-                                    color: "cyan",
-                                    label: "Downloaded",
-                                  },
-                                ] as const
-                              ).map(({ status, icon: Icon, color, label }) => {
-                                const cachedIgdbId = igdbIdCache[repack.PostID];
-                                const active = cachedIgdbId
-                                  ? (userGames[cachedIgdbId] || []).includes(
-                                      status,
-                                    )
-                                  : false;
-                                return (
-                                  <Tooltip key={status} label={label}>
-                                    <ActionIcon
-                                      variant={active ? "filled" : "light"}
-                                      color={active ? color : "dark.4"}
-                                      size="lg"
-                                      radius="md"
-                                      onClick={(e) =>
-                                        toggleRepackStatus(
-                                          e,
-                                          repack.PostID,
-                                          repack.PostTitle,
-                                          status,
-                                        )
-                                      }
-                                      style={{ transition: "all 0.2s ease" }}
-                                    >
-                                      <Icon size={18} />
-                                    </ActionIcon>
-                                  </Tooltip>
-                                );
-                              })}
-                            </Group>
-                          </Group>
-
-                          <Group gap={6} mb="md" wrap="wrap">
-                            {repack.Genres &&
-                              repack.Genres.slice(0, 6).map((genre, idx) => (
-                                <Badge
-                                  key={idx}
-                                  variant="dot"
-                                  color="blue.4"
-                                  size="xs"
-                                  radius="xs"
-                                  style={{ textTransform: "none" }}
-                                >
-                                  {genre}
-                                </Badge>
-                              ))}
-                          </Group>
-
-                          <Group
-                            justify="space-between"
-                            align="flex-end"
-                            mt="auto"
-                          >
-                            <Box style={{ maxWidth: "65%" }}>
-                              {repack.Companies && (
-                                <Text
-                                  size="sm"
-                                  c="blue.2"
-                                  fw={700}
-                                  lineClamp={1}
-                                >
-                                  {repack.Companies}
-                                </Text>
-                              )}
-                              {repack.Languages && (
-                                <Text
-                                  size="xs"
-                                  c="dimmed"
-                                  lineClamp={1}
-                                  fw={500}
-                                >
-                                  {repack.Languages}
-                                </Text>
-                              )}
-                            </Box>
-
-                            <Button
-                              variant="light"
-                              color="blue"
-                              size="md"
-                              radius="md"
-                              rightSection={<IconSearch size={18} />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRepackClick(repack);
-                              }}
-                              styles={{
-                                root: {
-                                  backgroundColor: "rgba(34, 139, 230, 0.1)",
-                                  "&:hover": {
-                                    backgroundColor: "rgba(34, 139, 230, 0.2)",
-                                  },
-                                },
-                              }}
-                            >
-                              Details
-                            </Button>
-                          </Group>
-                        </Box>
-                      </Stack>
-                    </Box>
-                  </Group>
-                </Card>
-              );
-            })}
+            {repacks.map((repack) => (
+              <RepackCard
+                key={repack.PostID}
+                repack={repack}
+                isRead={readPosts.has(repack.id)}
+                igdbIdCache={igdbIdCache}
+                userGames={userGames}
+                onToggleRead={toggleRead}
+                onMarkOlderAsRead={markOlderAsRead}
+                onToggleStatus={toggleRepackStatus}
+                onClick={handleRepackClick}
+              />
+            ))}
           </Stack>
 
           {/* Floating Pagination */}
@@ -1214,12 +804,11 @@ function RepacksPageContent() {
               left: "50%",
               transform: "translateX(-50%)",
               zIndex: 100,
-              backgroundColor: "rgba(26, 27, 30, 0.65)",
-              backdropFilter: "blur(12px)",
+              backgroundColor: "rgba(26, 27, 30, 0.95)",
               padding: "8px 24px",
               borderRadius: 100,
               border: "1px solid var(--mantine-color-dark-4)",
-              boxShadow: "0 10px 40px rgba(0,0,0,0.4)",
+              boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
             }}
           >
             <Pagination

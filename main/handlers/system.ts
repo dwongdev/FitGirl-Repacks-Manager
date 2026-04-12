@@ -15,15 +15,8 @@ async function getAccessToken(): Promise<string> {
     return cachedToken.access_token;
   }
 
-  const clientId = process.env.NEXT_PUBLIC_IGDB_CLIENT_ID;
-  const clientSecret = process.env.IGDB_CLIENT_SECRET;
-
-  if (!clientId || !clientSecret) {
-    throw new Error("IGDB credentials missing in main process");
-  }
-
   const response = await fetch(
-    `https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`,
+    `https://id.twitch.tv/oauth2/token?client_id=${process.env.NEXT_PUBLIC_IGDB_CLIENT_ID}&client_secret=${process.env.IGDB_CLIENT_SECRET}&grant_type=client_credentials`,
     { method: "POST" },
   );
 

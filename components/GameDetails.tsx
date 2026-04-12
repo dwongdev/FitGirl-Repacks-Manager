@@ -40,6 +40,7 @@ import {
   IconPinned,
   IconChevronDown,
   IconFileText,
+  IconBrandYoutube,
 } from "@tabler/icons-react";
 import { Switch, ActionIcon, Tooltip, rem } from "@mantine/core";
 import { PlatformIcons } from "./PlatformIcons";
@@ -66,6 +67,7 @@ import { ScrollArea } from "@mantine/core";
 import { MapViewer } from "./MapViewer";
 import fitgirlService, { FitGirlPost } from "../lib/fitgirl";
 import { motion, AnimatePresence } from "motion/react";
+import ReactPlayer from "react-player";
 
 interface GameDetailsProps {
   game: Game;
@@ -73,6 +75,123 @@ interface GameDetailsProps {
   onStatusChange: (gameId: number, status: string) => void;
   currentStatuses?: string[];
   isEmbedded?: boolean;
+}
+
+function YouTubePlayer({ videoId }: { videoId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isAgeRestricted, setIsAgeRestricted] = useState(false);
+
+  const handlePlay = async () => {
+    if (url) return;
+    setLoading(true);
+    setError(null);
+    setIsAgeRestricted(false);
+    try {
+      const res = await (window as any).electron.getVideoSource(videoId);
+      if (res.success) {
+        setUrl(res.url);
+      } else {
+        setError(res.error);
+        setIsAgeRestricted(res.isAgeRestricted);
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openOnYouTube = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    (window as any).electron.openExternal(
+      `https://www.youtube.com/watch?v=${videoId}`,
+    );
+  };
+
+  if (!url) {
+    return (
+      <Box
+        pos="relative"
+        style={{
+          cursor: "pointer",
+          aspectRatio: "16/9",
+          background: "#111",
+          borderRadius: "24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          border: error ? "1px solid rgba(255,0,0,0.2)" : "none",
+        }}
+        onClick={handlePlay}
+      >
+        <Image
+          src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`}
+          pos="absolute"
+          inset={0}
+          style={{
+            opacity: error ? 0.3 : 0.6,
+            objectFit: "cover",
+            width: "100%",
+            height: "100%",
+            filter: error ? "grayscale(1) blur(4px)" : "none",
+          }}
+        />
+        <Stack align="center" gap="md" style={{ zIndex: 1 }} px="xl">
+          {loading ? (
+            <Loader color="white" size="sm" />
+          ) : error ? (
+            <IconBrandYoutube size={48} color="red" opacity={0.5} />
+          ) : (
+            <IconPlayerPlay size={48} color="white" />
+          )}
+
+          {error && (
+            <Stack align="center" gap={4}>
+              <Text c="red.4" size="sm" ta="center" fw={700}>
+                {isAgeRestricted
+                  ? "Age Restricted Video"
+                  : "Playback Extraction Failed"}
+              </Text>
+              <Text c="dimmed" size="xs" ta="center" lineClamp={2} maw={300}>
+                {isAgeRestricted
+                  ? "This video may be inappropriate for some users and requires signing in."
+                  : error}
+              </Text>
+              <Button
+                variant="white"
+                color="red"
+                size="xs"
+                radius="xl"
+                mt="xs"
+                leftSection={<IconExternalLink size={14} />}
+                onClick={openOnYouTube}
+              >
+                Watch on YouTube
+              </Button>
+            </Stack>
+          )}
+        </Stack>
+      </Box>
+    );
+  }
+
+  return (
+    <ReactPlayer
+      src={url}
+      width="100%"
+      height="100%"
+      playing
+      controls
+      style={{
+        borderRadius: "24px",
+        overflow: "hidden",
+        boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
+      }}
+    />
+  );
 }
 
 export function GameDetails({
@@ -86,7 +205,6 @@ export function GameDetails({
     Array.isArray(currentStatuses) ? currentStatuses : []
   ).filter((s) => typeof s === "string" && s.length > 1);
   const theme = useMantineTheme();
-  const isMobile = useMediaQuery(`(max-width: ${theme.breakpoints.sm})`);
   const isDesktop = useMediaQuery(`(min-width: ${theme.breakpoints.md})`);
   const [repacks, setRepacks] = useState<FitGirlPost[]>([]);
   const [isUpdateOpen, setIsUpdateOpen] = useState<{ [key: string]: boolean }>(
@@ -124,6 +242,7 @@ export function GameDetails({
       const results = await Promise.all(
         repacks.map(async (r) => {
           if (!r.PostLink) return r;
+
           try {
             const updated = await fitgirlService.scrapeSinglePost(r.PostLink);
             return updated || r;
@@ -165,6 +284,14 @@ export function GameDetails({
   }, [game.name, userDataLoading]);
 
   const sortedRepacks = [...repacks];
+
+  const allUpdates = repacks.flatMap((r) =>
+    (r.GameUpdates || []).map((u) => ({
+      ...u,
+      repackTitle: r.PostTitle,
+      repackId: r.PostID,
+    })),
+  );
 
   const screenshots =
     game.screenshots?.map((s) => s.url.replace("t_thumb", "t_1080p")) || [];
@@ -1825,7 +1952,7 @@ export function GameDetails({
                                               (
                                                 window as any
                                               ).electron.openExternal(
-                                                update.Url,
+                                                update.Link,
                                               )
                                             }
                                             leftSection={
@@ -1866,7 +1993,7 @@ export function GameDetails({
                                                 />
                                               </motion.div>
                                               <Text size="sm" fw={500}>
-                                                {update.Title}
+                                                {update.Name}
                                               </Text>
                                             </Group>
                                           </Button>
@@ -1930,6 +2057,79 @@ export function GameDetails({
               </Text>
             </Stack>
           </Center>
+        )}
+
+        {/* Available Updates Block for Installed Games */}
+        {(isDownloaded || gamePath) && allUpdates.length > 0 && (
+          <Box mt="xl">
+            <Group justify="space-between" mb="md">
+              <Group gap="xs">
+                <IconPackage size={24} color="var(--mantine-color-blue-6)" />
+                <Title order={2}>Updates Available</Title>
+              </Group>
+              <Badge size="lg" variant="light" color="blue">
+                {allUpdates.length} Updates
+              </Badge>
+            </Group>
+
+            <Card
+              withBorder
+              radius="xl"
+              p="xl"
+              style={{
+                backgroundColor: "rgba(24, 100, 171, 0.05)",
+                borderColor: "rgba(24, 100, 171, 0.2)",
+              }}
+            >
+              <Stack gap="sm">
+                {allUpdates.map((update, idx) => (
+                  <Button
+                    key={idx}
+                    fullWidth
+                    variant="subtle"
+                    color="gray"
+                    radius="md"
+                    onClick={() =>
+                      (window as any).electron.openExternal(update.Link)
+                    }
+                    leftSection={<IconDownload size={18} />}
+                    rightSection={
+                      <>
+                        <Text size="xs" c="dimmed" fs="italic" maw={200}>
+                          From: {update.repackTitle}
+                        </Text>
+                      </>
+                    }
+                    styles={{
+                      root: {
+                        justifyContent: "space-between",
+                        height: "auto",
+                        padding: "12px 16px",
+                        backgroundColor: "rgba(24, 100, 171, 0.05)",
+                        "&:hover": {
+                          backgroundColor: "rgba(24, 100, 171, 0.1)",
+                          transform: "translateX(4px)",
+                        },
+                        transition: "all 0.2s ease",
+                      },
+                    }}
+                  >
+                    <Group gap="sm">
+                      <IconFileText
+                        size={18}
+                        color="var(--mantine-color-blue-5)"
+                      />
+                      <Box>
+                        <Text fw={600} size="sm">
+                          {update.Name}
+                        </Text>
+                      </Box>
+                    </Group>
+                  </Button>
+                ))}
+              </Stack>
+            </Card>
+          </Box>
         )}
 
         {/* Summary */}
@@ -2012,19 +2212,7 @@ export function GameDetails({
                 {videos.map((video) => (
                   <Stack key={video.video_id} gap="xs">
                     <AspectRatio ratio={16 / 9}>
-                      <iframe
-                        src={`https://www.youtube.com/embed/${video.video_id}?rel=0`}
-                        title={video.name}
-                        style={{
-                          border: 0,
-                          borderRadius: "24px",
-                          boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
-                        }}
-                        name="google-disable-x-frame-options"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                        referrerPolicy="no-referrer-when-downgrade"
-                      />
+                      <YouTubePlayer videoId={video.video_id} />
                     </AspectRatio>
                     <Text fw={600} size="sm" px="xs">
                       {video.name}

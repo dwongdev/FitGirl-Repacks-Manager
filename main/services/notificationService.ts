@@ -1,86 +1,76 @@
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import PocketBase from "pocketbase";
+import { EventSource } from "eventsource";
 import { app, Notification } from "electron";
 import { getMainWindow } from "./windowService";
 import { getAssetPath } from "../utils";
 import userDataService from "./userDataService";
 
+global.EventSource = EventSource;
+
 class NotificationService {
-  private supabase: SupabaseClient | null = null;
-  private channel: any = null;
+  private pb: PocketBase | null = null;
+  private unsubscribe: (() => void) | null = null;
 
   async start() {
-    if (this.channel) {
+    if (this.unsubscribe) {
       console.log("[NotificationService] Already subscribed, skipping start.");
       return;
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-    const TABLE_NAME = process.env.NEXT_PUBLIC_SUPABASE_TABLE_NAME || "";
+    const pbUrl =
+      process.env.NEXT_PUBLIC_POCKETBASE_URL || "http://127.0.0.1:8090";
+    const COLLECTION_NAME = "FitData";
 
-    if (!supabaseUrl || !supabaseAnonKey) {
+    if (!pbUrl) {
       console.warn(
-        "[NotificationService] Supabase credentials missing. Real-time notifications disabled.",
+        "[NotificationService] PocketBase URL missing. Real-time notifications disabled.",
       );
       return;
     }
 
-    this.supabase = createClient(supabaseUrl, supabaseAnonKey);
+    this.pb = new PocketBase(pbUrl);
 
     console.log(
-      `[NotificationService] Subscribing to "${TABLE_NAME}" (Realtime enabled: ${!!this.supabase})`,
+      `[NotificationService] Subscribing to "${COLLECTION_NAME}" (Realtime enabled: ${!!this.pb})`,
     );
-    console.log(`[NotificationService] URL: ${supabaseUrl}`);
+    console.log(`[NotificationService] URL: ${pbUrl}`);
 
-    this.channel = this.supabase
-      .channel("repack-updates")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: TABLE_NAME },
-        (payload: any) => {
+    try {
+      this.unsubscribe = await this.pb
+        .collection(COLLECTION_NAME)
+        .subscribe("*", (e) => {
           console.log(
             "[NotificationService] EVENT RECEIVED:",
-            payload.eventType,
-            "on table",
-            payload.table,
+            e.action,
+            "on collection",
+            COLLECTION_NAME,
           );
 
-          if (payload.new && payload.eventType === "INSERT") {
+          if (e.record && e.action === "create") {
             console.log(
-              `[NotificationService] Processing ${payload.eventType} for:`,
-              payload.new.PostTitle,
+              `[NotificationService] Processing ${e.action} for:`,
+              e.record.PostTitle,
             );
-            this.handleNewRepack(payload.new, payload.eventType);
+            this.handleNewRepack(e.record, "INSERT");
           }
-        },
-      );
+        });
 
-    this.channel.subscribe((status: string, err?: any) => {
-      if (status === "SUBSCRIBED") {
-        console.log(
-          "[NotificationService] Successfully subscribed to Realtime!",
-        );
-      } else {
-        console.error(
-          `[NotificationService] Subscription status: ${status}`,
-          err || "",
-        );
-        if (status === "CHANNEL_ERROR") {
-          console.error(
-            "[NotificationService] Ensure Realtime is enabled for table 'FitData' in: Database -> Replication -> Source -> FitData",
-          );
-        }
-      }
-    });
+      console.log("[NotificationService] Successfully subscribed to Realtime!");
+    } catch (err: any) {
+      console.error(
+        "[NotificationService] Failed to subscribe to Realtime:",
+        err.message,
+      );
+    }
   }
 
   async stop() {
-    if (this.channel) {
+    if (this.unsubscribe) {
       console.log("[NotificationService] Unsubscribing from Realtime...");
-      await this.channel.unsubscribe();
-      this.channel = null;
+      this.unsubscribe();
+      this.unsubscribe = null;
     }
-    this.supabase = null;
+    this.pb = null;
   }
 
   private async handleNewRepack(repack: any, eventType: string = "INSERT") {

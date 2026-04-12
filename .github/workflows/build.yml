@@ -1,6 +1,9 @@
-name: Build/release
+name: Build/release Electron app
 
-on: push
+on:
+  push:
+    tags:
+      - v*.*.*
 
 jobs:
   release:
@@ -14,19 +17,45 @@ jobs:
       - name: Check out Git repository
         uses: actions/checkout@v6
 
-      - name: Install Node.js, NPM and Yarn
+      - name: Install Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22.18.0
+          node-version: 16
 
-      - name: Build/release Electron app
-        uses: samuelmeuli/action-electron-builder@v1.6.0
+      - name: Install Dependencies
+        run: npm install
+
+      - name: build-linux
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run build:linux
+
+      - name: build-mac
+        if: matrix.os == 'macos-latest'
+        run: npm run build:mac
+
+      - name: build-win
+        if: matrix.os == 'windows-latest'
+        run: npm run build:win
+
+      - name: release
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          files: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.snap
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+            dist/*.yml
+            dist/*.blockmap
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_SUPABASE_TABLE_NAME: ${{ secrets.NEXT_PUBLIC_SUPABASE_TABLE_NAME }}
           NEXT_PUBLIC_IGDB_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_IGDB_CLIENT_ID }}
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          release: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}

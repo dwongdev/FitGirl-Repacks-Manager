@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { supabase } from "../../lib/supabase";
+import { pb } from "../../lib/pocketbase";
 import { useAuth } from "./AuthProvider";
 import { notifications } from "@mantine/notifications";
 
@@ -20,7 +20,7 @@ interface SyncContextType {
 
 const SyncContext = createContext<SyncContextType | undefined>(undefined);
 
-const USER_DATA_TABLE = "user_data";
+const USER_DATA_COLLECTION = "user_data";
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -39,52 +39,34 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       if (!pushOnly) {
         let remoteData: any = null;
         try {
-          const { data, error } = await supabase
-            .from(USER_DATA_TABLE)
-            .select("*")
-            .eq("user_id", user.id)
-            .maybeSingle();
-
-          if (error) throw error;
+          const data = await pb
+            .collection(USER_DATA_COLLECTION)
+            .getFirstListItem(`user = "${user.id}"`);
 
           if (data) {
             remoteData = {
-              userGames: data.userGames ? JSON.parse(data.userGames) : {},
-              statusTimestamps: data.statusTimestamps
-                ? JSON.parse(data.statusTimestamps)
-                : {},
-              readRepacks: data.readRepacks ? JSON.parse(data.readRepacks) : [],
-              repackIgdbMapping: data.repackIgdbMapping
-                ? JSON.parse(data.repackIgdbMapping)
-                : {},
-              virtualGames: data.virtualGames
-                ? JSON.parse(data.virtualGames)
-                : {},
-              gamePaths: data.gamePaths ? JSON.parse(data.gamePaths) : {},
+              userGames: data.userGames || {},
+              statusTimestamps: data.statusTimestamps || {},
+              readRepacks: data.readRepacks || [],
+              repackIgdbMapping: data.repackIgdbMapping || {},
+              virtualGames: data.virtualGames || {},
+              gamePaths: data.gamePaths || {},
               ds4Path: data.ds4Path || "",
-              gameDs4Settings: data.gameDs4Settings
-                ? JSON.parse(data.gameDs4Settings)
-                : {},
-              playTime: data.playTime ? JSON.parse(data.playTime) : {},
-              lastPlayedTimestamps: data.lastPlayedTimestamps
-                ? JSON.parse(data.lastPlayedTimestamps)
-                : {},
-              activeDownloads: data.activeDownloads
-                ? JSON.parse(data.activeDownloads)
-                : {},
-              downloadedGames: data.downloadedGames
-                ? JSON.parse(data.downloadedGames)
-                : {},
-              settings: data.settings ? JSON.parse(data.settings) : {},
+              gameDs4Settings: data.gameDs4Settings || {},
+              playTime: data.playTime || {},
+              lastPlayedTimestamps: data.lastPlayedTimestamps || {},
+              activeDownloads: data.activeDownloads || {},
+              downloadedGames: data.downloadedGames || {},
+              settings: data.settings || {},
               migrationVersion: data.migrationVersion || 1,
             };
           }
         } catch (e: any) {
-          console.log("[Sync] Error fetching remote document:", e.message);
+          if (e.status !== 404) {
+          }
         }
 
         if (remoteData) {
-          console.log("[Sync] Merging remote data before push...");
           await (window as any).electron.syncUserDataDown(remoteData);
         }
       }
@@ -92,36 +74,39 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       const localData = (await (window as any).electron.allUserData()) || {};
 
       const payload = {
-        user_id: user.id,
-        userGames: JSON.stringify(localData.userGames || {}),
-        statusTimestamps: JSON.stringify(localData.statusTimestamps || {}),
-        readRepacks: JSON.stringify(localData.readRepacks || []),
-        repackIgdbMapping: JSON.stringify(localData.repackIgdbMapping || {}),
-        virtualGames: JSON.stringify(localData.virtualGames || {}),
-        gamePaths: JSON.stringify(localData.gamePaths || {}),
+        user: user.id,
+        userGames: localData.userGames || {},
+        statusTimestamps: localData.statusTimestamps || {},
+        repackIgdbMapping: localData.repackIgdbMapping || {},
+        virtualGames: localData.virtualGames || {},
+        gamePaths: localData.gamePaths || {},
         ds4Path: localData.ds4Path || "",
-        gameDs4Settings: JSON.stringify(localData.gameDs4Settings || {}),
-        playTime: JSON.stringify(localData.playTime || {}),
-        lastPlayedTimestamps: JSON.stringify(
-          localData.lastPlayedTimestamps || {},
-        ),
-        activeDownloads: JSON.stringify(localData.activeDownloads || {}),
-        downloadedGames: JSON.stringify(localData.downloadedGames || {}),
-        settings: JSON.stringify(localData.settings || {}),
+        gameDs4Settings: localData.gameDs4Settings || {},
+        playTime: localData.playTime || {},
+        lastPlayedTimestamps: localData.lastPlayedTimestamps || {},
+        activeDownloads: localData.activeDownloads || {},
+        downloadedGames: localData.downloadedGames || {},
+        settings: localData.settings || {},
         migrationVersion: localData.migrationVersion || 1,
-        updated_at: new Date().toISOString(),
       };
 
-      const { error: upsertError } = await supabase
-        .from(USER_DATA_TABLE)
-        .upsert(payload, { onConflict: "user_id" });
+      // Check if record exists for this user to update, or create a new one
+      let existingRecord = null;
+      try {
+        existingRecord = await pb
+          .collection(USER_DATA_COLLECTION)
+          .getFirstListItem(`user = "${user.id}"`);
+      } catch (e) {}
 
-      if (upsertError) throw upsertError;
+      if (existingRecord) {
+        await pb
+          .collection(USER_DATA_COLLECTION)
+          .update(existingRecord.id, payload);
+      } else {
+        await pb.collection(USER_DATA_COLLECTION).create(payload);
+      }
 
       setLastSynced(new Date());
-      console.log(
-        `[Sync] Combined data successfully ${pushOnly ? "pushed" : "synced"} to Supabase.`,
-      );
     } catch (error: any) {
       console.error("[Sync] Failed to sync data:", error);
       notifications.show({
@@ -150,7 +135,6 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     const cleanup = (window as any).electron.onUserDataUpdated(() => {
-      console.log("[Sync] Local data change detected. Triggering sync...");
       const timer = setTimeout(() => {
         sync(true);
       }, 2000);

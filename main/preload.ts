@@ -150,6 +150,8 @@ contextBridge.exposeInMainWorld("electron", {
     return () =>
       ipcRenderer.removeListener("show-update-modal", subscription);
   },
+  getVideoSource: (videoId: string) =>
+    ipcRenderer.invoke("get-video-source", videoId),
 });
 
 // Basic preload script functionality

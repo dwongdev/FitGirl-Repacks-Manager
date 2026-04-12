@@ -1,14 +1,13 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { supabase } from "../../lib/supabase";
-import { User } from "@supabase/supabase-js";
+import { pb } from "../../lib/pocketbase";
 import { notifications } from "@mantine/notifications";
 import { IconCheck, IconX } from "@tabler/icons-react";
 import { useInitialization } from "./InitializationProvider";
 
 interface AuthContextType {
-  user: User | null;
+  user: any | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<any>;
@@ -23,7 +22,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const { registerTask, markTaskComplete } = useInitialization();
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
@@ -31,13 +30,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkUser = async () => {
     registerTask("auth:init");
     try {
-      const {
-        data: { user: sessionUser },
-      } = await supabase.auth.getUser();
-      setUser(sessionUser);
-      if (sessionUser) {
+      if (pb.authStore.isValid && pb.authStore.model) {
+        setUser(pb.authStore.model);
         (window as any).electron?.notifyAuthSignin?.();
       } else {
+        setUser(null);
         (window as any).electron?.notifyAuthSignout?.();
       }
     } catch (error) {
@@ -49,104 +46,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const processAuthUrl = async (url: string) => {
-    console.log("[Auth] Processing deep link:", url);
-    try {
-      setLoading(true);
-      const parsedUrl = new URL(url.replace("#", "?"));
-
-      const errorMsg =
-        parsedUrl.searchParams.get("error_description") ||
-        parsedUrl.searchParams.get("error");
-      if (errorMsg) {
-        notifications.show({
-          title: "Authentication Error",
-          message: errorMsg.replace(/\+/g, " "),
-          color: "red",
-          icon: <IconX size={18} />,
-          autoClose: 10000,
-        });
-        return;
-      }
-
-      const accessToken = parsedUrl.searchParams.get("access_token");
-      const refreshToken = parsedUrl.searchParams.get("refresh_token");
-
-      if (accessToken && refreshToken) {
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        if (error) throw error;
-
-        notifications.show({
-          title: "Welcome Back!",
-          message: "Your email has been verified successfully.",
-          color: "teal",
-          icon: <IconCheck size={18} />,
-        });
-      } else {
-        const code = parsedUrl.searchParams.get("code");
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) throw error;
-
-          notifications.show({
-            title: "Email Verified",
-            message: "You are now logged in.",
-            color: "teal",
-            icon: <IconCheck size={18} />,
-          });
-        }
-      }
-      await checkUser();
-    } catch (err: any) {
-      console.error("[Auth] Deep link processing failed:", err);
-      notifications.show({
-        title: "Link Processing Failed",
-        message:
-          err.message ||
-          "An unexpected error occurred while verifying the link.",
-        color: "red",
-        icon: <IconX size={18} />,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     const initAuth = async () => {
       await checkUser();
 
+      // PocketBase handles OAuth redirect differently, but for now we follow the same pattern
       const bufferedUrl = await (window as any).electron.getAuthCallback();
       if (bufferedUrl) {
-        processAuthUrl(bufferedUrl);
+        // processAuthUrl(bufferedUrl); // TODO: Implement if OAuth is needed
       }
     };
 
     initAuth();
 
-    const cleanupProtocol = (window as any).electron.onAuthCallback(
-      async (url: string) => {
-        processAuthUrl(url);
-      },
-    );
+    // Listen for auth store changes
+    pb.authStore.onChange((token, model) => {
+      setUser(model);
+      if (model) {
+        (window as any).electron?.notifyAuthSignin?.();
+      } else {
+        (window as any).electron?.notifyAuthSignout?.();
+      }
+    }, true);
   }, []);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) throw error;
-      const {
-        data: { user: sessionUser },
-      } = await supabase.auth.getUser();
+      await pb.collection("users").authWithPassword(email, password);
       await checkUser();
-      (window as any).electron?.notifyAuthSignin?.();
     } catch (error) {
       setLoading(false);
       throw error;
@@ -156,18 +84,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signup = async (name: string, email: string, password: string) => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const data = await pb.collection("users").create({
         email,
         password,
-        options: {
-          emailRedirectTo: "fitgirl-repacks://auth-callback",
-          data: {
-            full_name: name,
-          },
-        },
+        passwordConfirm: password,
+        name,
+        emailVisibility: true,
       });
-      if (error) throw error;
-      await checkUser();
+
+      // Auto login after signup in PocketBase if no verification is forced
+      // Or just return data and let them verify
       return data;
     } catch (error) {
       setLoading(false);
@@ -178,7 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setLoading(true);
     try {
-      await supabase.auth.signOut();
+      pb.authStore.clear();
       setUser(null);
       (window as any).electron?.notifyAuthSignout?.();
     } catch (error) {
@@ -191,10 +117,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetPassword = async (email: string) => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: "fitgirl-repacks://auth-callback",
+      await pb.collection("users").requestPasswordReset(email);
+      notifications.show({
+        title: "Reset Link Sent",
+        message: "Check your email for password reset instructions.",
+        color: "teal",
       });
-      if (error) throw error;
     } finally {
       setLoading(false);
     }
@@ -203,9 +131,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updatePassword = async (password: string) => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) throw error;
+      if (!pb.authStore.model) throw new Error("Not logged in");
+      await pb.collection("users").update(pb.authStore.model.id, {
+        password,
+        passwordConfirm: password,
+      });
       setIsPasswordRecovery(false);
+      notifications.show({
+        title: "Password Updated",
+        message: "Your password has been changed successfully.",
+        color: "teal",
+      });
     } finally {
       setLoading(false);
     }

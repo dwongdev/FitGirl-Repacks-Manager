@@ -12,6 +12,7 @@ import {
   Transition,
   ActionIcon,
   SimpleGrid,
+  Button,
 } from "@mantine/core";
 import { Carousel } from "@mantine/carousel";
 import { useHotkeys } from "@mantine/hooks";
@@ -24,15 +25,95 @@ import {
   IconStar,
   IconCalendar,
   IconUsers,
+  IconBrandYoutube,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { Game, IgdbService } from "../lib/igdb";
 import { useUserData } from "../lib/useUserData";
 import { PlatformIcons } from "./PlatformIcons";
 import { Badge, Divider, ScrollArea } from "@mantine/core";
 import { useRouter } from "next/navigation";
+import ReactPlayer from "react-player";
 
 interface BigPictureViewProps {
   onClose: () => void;
+}
+
+function YouTubePlayer({ videoId }: { videoId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isAgeRestricted, setIsAgeRestricted] = useState(false);
+
+  useEffect(() => {
+    const fetchSource = async () => {
+      try {
+        const res = await (window as any).electron.getVideoSource(videoId);
+        if (res.success) {
+          setUrl(res.url);
+        } else {
+          setError(res.error);
+          setIsAgeRestricted(res.isAgeRestricted);
+        }
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSource();
+  }, [videoId]);
+
+  const openOnYouTube = () => {
+    (window as any).electron.openExternal(
+      `https://www.youtube.com/watch?v=${videoId}`,
+    );
+  };
+
+  if (loading) {
+    return (
+      <Center h="100%">
+        <Stack align="center" gap="md">
+          <Loader size="lg" color="blue" />
+          <Text fw={600}>Extracting Video Source...</Text>
+        </Stack>
+      </Center>
+    );
+  }
+
+  if (error) {
+    return (
+      <Center h="100%">
+        <Stack align="center" gap="md" px="xl">
+          <IconBrandYoutube size={64} color="red" />
+          <Text c="red.4" fw={700} size="xl">
+            {isAgeRestricted ? "Age Restricted Video" : "Playback Error"}
+          </Text>
+          <Text c="dimmed" ta="center" maw={500}>
+            {isAgeRestricted
+              ? "This video may be inappropriate for some users and requires signing in to YouTube."
+              : error}
+          </Text>
+          <Button
+            variant="filled"
+            color="red"
+            size="lg"
+            radius="md"
+            leftSection={<IconExternalLink size={20} />}
+            onClick={openOnYouTube}
+            style={{ border: "2px solid white" }}
+          >
+            Watch on YouTube
+          </Button>
+          <Text size="sm" c="dimmed" mt="xs">
+            Press ESC to return
+          </Text>
+        </Stack>
+      </Center>
+    );
+  }
+
+  return <ReactPlayer src={url!} width="100%" height="100%" playing controls />;
 }
 
 export function BigPictureView({ onClose }: BigPictureViewProps) {
@@ -986,15 +1067,7 @@ export function BigPictureView({ onClose }: BigPictureViewProps) {
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <iframe
-                width="100%"
-                height="100%"
-                src={`https://www.youtube.com/embed/${selectedVideoId}?autoplay=1`}
-                title="YouTube video player"
-                frameBorder="0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-              />
+              <YouTubePlayer videoId={selectedVideoId!} />
 
               <ActionIcon
                 pos="absolute"

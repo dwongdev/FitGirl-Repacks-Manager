@@ -13,6 +13,7 @@ import { registerSystemHandlers } from "../handlers/system";
 import { registerWindowHandlers } from "../handlers/window";
 import { registerMapGenieHandlers } from "../handlers/mapgenie";
 import { registerUpdaterHandlers } from "../handlers/updater";
+import { registerVideoHandlers } from "../handlers/video";
 
 import trayService from "./trayService";
 import { updateJumpList } from "./jumpListService";
@@ -73,17 +74,42 @@ export function createWindow(): BrowserWindow {
     },
   });
 
-  if (!isDev) {
-    session
-      .fromPartition("persist:launcher")
-      .webRequest.onBeforeSendHeaders(
-        { urls: ["https://www.youtube.com/embed/*"] },
-        (details, callback) => {
-          details.requestHeaders["Referer"] = "https://www.youtube.com/";
-          callback({ requestHeaders: details.requestHeaders });
-        },
-      );
-  }
+  const youtubeFilter = {
+    urls: [
+      "https://www.youtube.com/*",
+      "https://youtube.com/*",
+      "https://*.youtube.com/*",
+      "https://*.ytimg.com/*",
+    ],
+  };
+
+  const launcherSession = session.fromPartition("persist:launcher");
+
+  launcherSession.webRequest.onBeforeSendHeaders(
+    youtubeFilter,
+    (details, callback) => {
+      details.requestHeaders["Referer"] = "https://www.youtube.com/";
+      details.requestHeaders["Origin"] = "https://www.youtube.com";
+      details.requestHeaders["User-Agent"] =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+      callback({ requestHeaders: details.requestHeaders });
+    },
+  );
+
+  launcherSession.webRequest.onHeadersReceived(
+    youtubeFilter,
+    (details, callback) => {
+      const responseHeaders = { ...details.responseHeaders };
+      // Remove headers that block embedding
+      const keysToRemove = ["x-frame-options", "content-security-policy"];
+      Object.keys(responseHeaders).forEach((key) => {
+        if (keysToRemove.includes(key.toLowerCase())) {
+          delete responseHeaders[key];
+        }
+      });
+      callback({ responseHeaders });
+    },
+  );
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:3000");
@@ -146,6 +172,7 @@ export function createWindow(): BrowserWindow {
   registerWindowHandlers(mainWindow);
   registerMapGenieHandlers();
   registerUpdaterHandlers(mainWindow);
+  registerVideoHandlers();
 
   mainWindow.on("close", (event) => {
     if (!(app as any).isQuitting) {

@@ -40,9 +40,12 @@ import { IgdbService, Game } from "../lib/igdb";
 import React from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { SmoothScrollProvider } from "./providers/SmoothScroll";
 
 export function AppLayoutShell({ children }: { children: React.ReactNode }) {
   const [opened, { toggle }] = useDisclosure();
+  const [viewport, setViewport] = React.useState<HTMLDivElement | null>(null);
+  const [content, setContent] = React.useState<HTMLDivElement | null>(null);
   const [detectModalOpened, { open: openDetect, close: closeDetect }] =
     useDisclosure();
   const router = useRouter();
@@ -527,9 +530,15 @@ export function AppLayoutShell({ children }: { children: React.ReactNode }) {
       </AppShell.Navbar>
 
       <AppShell.Main bg="transparent">
-        <ScrollArea h="calc(100vh - 60px)" offsetScrollbars>
-          {children}
-        </ScrollArea>
+        <SmoothScrollProvider wrapper={viewport} content={content}>
+          <ScrollArea
+            viewportRef={setViewport}
+            h="calc(100vh - 60px)"
+            offsetScrollbars
+          >
+            <div ref={setContent}>{children}</div>
+          </ScrollArea>
+        </SmoothScrollProvider>
       </AppShell.Main>
       <DetectGamesModal opened={detectModalOpened} onClose={closeDetect} />
       {bigPictureMode && (

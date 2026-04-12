@@ -60,6 +60,31 @@ export default function RootLayout({
           .repack-card:hover .mantine-Carousel-control {
             opacity: 1;
           }
+          html.lenis {
+            height: auto;
+          }
+          .lenis.lenis-smooth {
+            scroll-behavior: auto !important;
+          }
+          .lenis.lenis-smooth [data-lenis-prevent] {
+            overscroll-behavior: contain;
+          }
+          .lenis.lenis-stopped {
+            overflow: hidden;
+          }
+          .mantine-ScrollArea-viewport {
+            scroll-behavior: smooth;
+          }
+          body {
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+          }
+          input, textarea, [contenteditable="true"] {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+          }
         `,
           }}
         />
@@ -72,6 +97,8 @@ export default function RootLayout({
           color: "#C1C2C5",
           fontFamily: outfit.style.fontFamily,
           overflow: "hidden",
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}
       >
         <MantineProvider theme={theme} defaultColorScheme="dark">

@@ -50,7 +50,6 @@ export function NotificationServiceHandler() {
     if (typeof window === "undefined" || !(window as any).electron) return;
 
     const navigateToRepack = (repack: any) => {
-      console.log("Navigating to repack:", repack.PostID);
       router.push(`/repacks?repackId=${repack.PostID}`);
     };
 
@@ -72,12 +71,13 @@ export function NotificationServiceHandler() {
 
     const unsubscribeUpdateModal = (window as any).electron.onShowUpdateModal(
       (result: any) => {
-        console.log("Renderer received update modal signal:", result);
         setUpdateData(result);
-        
+
         // Notify other components (like the Header) that an update is available
-        window.dispatchEvent(new CustomEvent("fit:update-available", { detail: result }));
-        
+        window.dispatchEvent(
+          new CustomEvent("fit:update-available", { detail: result }),
+        );
+
         // If the update is already downloaded, set the path immediately
         if (result.isDownloaded && result.downloadedPath) {
           setUpdateStatus((prev) => ({
@@ -93,7 +93,7 @@ export function NotificationServiceHandler() {
             error: null,
           });
         }
-        
+
         openUpdateModal();
       },
     );
@@ -106,8 +106,6 @@ export function NotificationServiceHandler() {
 
     const unsubscribeNotify = (window as any).electron.onNewRepackNotification(
       (repack: any) => {
-        console.log("Renderer received new repack notification:", repack);
-
         notifications.show({
           title: "New Repack Available!",
           message: (
@@ -168,7 +166,10 @@ export function NotificationServiceHandler() {
       unsubscribeSettings();
       unsubscribeUpdateModal();
       unsubscribeNotify();
-      window.removeEventListener("fit:open-update-modal", handleOpenUpdateModal);
+      window.removeEventListener(
+        "fit:open-update-modal",
+        handleOpenUpdateModal,
+      );
     };
   }, [router, openUpdateModal]);
 
@@ -379,14 +380,16 @@ export function NotificationServiceHandler() {
                       error: null,
                     }));
 
-                    const removeListener = (window as any).electron.onUpdateDownloadProgress(
-                      (progress: any) => {
-                        setUpdateStatus((prev) => ({ ...prev, progress }));
-                      },
-                    );
+                    const removeListener = (
+                      window as any
+                    ).electron.onUpdateDownloadProgress((progress: any) => {
+                      setUpdateStatus((prev) => ({ ...prev, progress }));
+                    });
 
                     try {
-                      const installerPath = await (window as any).electron.downloadUpdate(
+                      const installerPath = await (
+                        window as any
+                      ).electron.downloadUpdate(
                         updateData.release.downloadUrl,
                         updateData.release.assetName,
                       );
