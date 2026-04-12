@@ -66,7 +66,7 @@ import {
 import { ScrollArea } from "@mantine/core";
 import { MapViewer } from "./MapViewer";
 import fitgirlService, { FitGirlPost } from "../lib/fitgirl";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from "framer-motion";
 import ReactPlayer from "react-player";
 
 interface GameDetailsProps {
