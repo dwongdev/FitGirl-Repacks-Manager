@@ -17,7 +17,6 @@ import {
   Loader,
   Center,
   useMantineTheme,
-  Menu,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMediaQuery } from "@mantine/hooks";
@@ -37,12 +36,11 @@ import {
   IconCalendar,
   IconUsers,
   IconStar,
-  IconPinned,
   IconChevronDown,
   IconFileText,
   IconBrandYoutube,
 } from "@tabler/icons-react";
-import { Switch, ActionIcon, Tooltip, rem } from "@mantine/core";
+import { Switch, ActionIcon, Tooltip } from "@mantine/core";
 import { PlatformIcons } from "./PlatformIcons";
 import { Game } from "../lib/igdb";
 import { useUserData } from "../lib/useUserData";
