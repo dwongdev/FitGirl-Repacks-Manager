@@ -18,7 +18,7 @@ class NotificationService {
     }
 
     const pbUrl =
-      process.env.NEXT_PUBLIC_POCKETBASE_URL || "http://127.0.0.1:8090";
+      "http://pocketbase-z0s00ww840s0g0sow8s8kk84.93.127.186.247.sslip.io";
     const COLLECTION_NAME = "FitData";
 
     if (!pbUrl) {

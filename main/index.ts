@@ -107,45 +107,6 @@ process.on("unhandledRejection", (reason, promise) => {
   console.error("[Main] Unhandled Rejection at:", promise, "reason:", reason);
 });
 
-function loadEnv() {
-  const envFiles = [
-    path.join(app.getAppPath(), ".env"),
-    path.join(app.getAppPath(), ".env.local"),
-    path.join(app.getPath("userData"), ".env"),
-    path.join(app.getPath("userData"), ".env.local"),
-    path.join(path.dirname(app.getPath("exe")), ".env"),
-    path.join(path.dirname(app.getPath("exe")), ".env.local"),
-  ];
-
-  for (const envPath of envFiles) {
-    try {
-      if (fs.existsSync(envPath)) {
-        console.log(`[Main] Loading env from: ${envPath}`);
-        const envConfig = fs.readFileSync(envPath, "utf8");
-        envConfig.split(/\r?\n/).forEach((line) => {
-          const trimmedLine = line.trim();
-          if (!trimmedLine || trimmedLine.startsWith("#")) return;
-
-          const index = trimmedLine.indexOf("=");
-          if (index > 0) {
-            const key = trimmedLine.substring(0, index).trim();
-            const value = trimmedLine.substring(index + 1).trim();
-            if (key && value) {
-              process.env[key] = value;
-            }
-          }
-        });
-      }
-    } catch (e) {
-      console.error(`[Main] Error loading env from ${envPath}:`, e);
-    }
-  }
-}
-
-if (!app.isPackaged) {
-  loadEnv();
-}
-
 app.on("ready", () => {
   createWindow();
   registerAuthHandlers();

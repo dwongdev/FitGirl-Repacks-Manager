@@ -16,7 +16,7 @@ async function getAccessToken(): Promise<string> {
   }
 
   const response = await fetch(
-    `https://id.twitch.tv/oauth2/token?client_id=${process.env.NEXT_PUBLIC_IGDB_CLIENT_ID}&client_secret=${process.env.IGDB_CLIENT_SECRET}&grant_type=client_credentials`,
+    `https://id.twitch.tv/oauth2/token?client_id=l88wyfp5bwc32d2hyd6p54my4apyb5&client_secret=5jurc5qhkwmfxzg932hj51ytqc9fh3&grant_type=client_credentials`,
     { method: "POST" },
   );
 
@@ -64,7 +64,7 @@ export function registerSystemHandlers(mainWindow: BrowserWindow): void {
         const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
           method: "POST",
           headers: {
-            "Client-ID": process.env.NEXT_PUBLIC_IGDB_CLIENT_ID!,
+            "Client-ID": "l88wyfp5bwc32d2hyd6p54my4apyb5",
             Authorization: `Bearer ${token}`,
             "Content-Type": "text/plain",
           },
