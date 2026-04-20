@@ -27,6 +27,8 @@ export interface UserData {
   downloadedGames: Record<string, any>;
   settings: UserSettings;
   migrationVersion: number;
+  /** ISO timestamp of the last time the app was connected to PocketBase */
+  lastConnectedAt: string;
 }
 
 class UserDataService {
@@ -74,6 +76,7 @@ class UserDataService {
       lastPlayedTimestamps: {},
       activeDownloads: {},
       downloadedGames: {},
+      lastConnectedAt: new Date(0).toISOString(), // epoch → forces full catch-up on first run
       settings: {
         downloadDirectory: path.join(
           app.getPath("downloads"),

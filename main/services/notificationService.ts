@@ -50,11 +50,17 @@ class NotificationService {
           );
 
           if (e.record && e.action === "create") {
+            // When a new post is published, remove it from the local
+            // readRepacks list so it shows up as unread for all users.
+            this.purgeFromReadRepacks(e.record.id);
             this.handleNewRepack(e.record, "INSERT");
           }
         });
 
       console.log("[NotificationService] Successfully subscribed to Realtime!");
+
+      // Catch-up: purge any posts that were added while the app was offline
+      await this.catchUpMissedNewRepacks();
     } catch (err: any) {
       console.error(
         "[NotificationService] Failed to subscribe to Realtime:",
@@ -147,20 +153,131 @@ class NotificationService {
           }
           mainWindow.focus();
 
-          console.log("[NotificationService] Sending navigation event for:", repack.PostID);
+          console.log(
+            "[NotificationService] Sending navigation event for:",
+            repack.PostID,
+          );
           mainWindow.webContents.send("navigate-to-repack", repack);
         } else {
-          console.error("[NotificationService] Cannot focus window: mainWindow is null");
+          console.error(
+            "[NotificationService] Cannot focus window: mainWindow is null",
+          );
         }
       });
 
       notification.show();
     }
 
-
     const mainWindow = getMainWindow();
     if (mainWindow) {
       mainWindow.webContents.send("new-repack-notification", repack);
+    }
+  }
+
+  private async catchUpMissedNewRepacks(): Promise<void> {
+    try {
+      const data = await userDataService.getData();
+      const now = new Date();
+
+      // Cap the lookback to 30 days maximum to avoid fetching the entire history
+      // when lastConnectedAt is missing (fresh install) or very stale (long offline).
+      const oneMonthAgo = new Date(now);
+      oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
+
+      const storedSince = data.lastConnectedAt
+        ? new Date(data.lastConnectedAt)
+        : null;
+
+      const sinceDate =
+        storedSince && storedSince > oneMonthAgo ? storedSince : oneMonthAgo;
+
+      // PocketBase expects dates with a space separator, not the ISO "T": "2024-01-01 00:00:00.000Z"
+      const pbSince = sinceDate.toISOString().replace("T", " ");
+
+      console.log(
+        `[NotificationService] Catch-up: querying new FitData records since ${pbSince}`,
+      );
+
+      await userDataService.setData("lastConnectedAt", now.toISOString());
+
+      if (!this.pb) return;
+
+      // Fetch IDs of all records created after the last connected timestamp.
+      // Paginate with 200 per page to avoid huge payloads.
+      let page = 1;
+      const newIds: string[] = [];
+      while (true) {
+        const result = await this.pb.collection("FitData").getList(page, 200, {
+          filter: `Timestamp > "${pbSince}"`,
+          sort: "-Timestamp",
+        });
+        console.log(result);
+
+        for (const item of result.items) newIds.push(item.id);
+        if (page >= result.totalPages) break;
+        page++;
+      }
+
+      if (newIds.length === 0) {
+        console.log("[NotificationService] Catch-up: no new records found.");
+        return;
+      }
+
+      console.log(
+        `[NotificationService] Catch-up: found ${newIds.length} new record(s). Purging from readRepacks...`,
+      );
+
+      const freshData = await userDataService.getData();
+      const newIdSet = new Set(newIds);
+      const cleaned = freshData.readRepacks.filter((id) => !newIdSet.has(id));
+      const removed = freshData.readRepacks.length - cleaned.length;
+
+      if (removed > 0) {
+        await userDataService.setData("readRepacks", cleaned);
+        const mainWindow = getMainWindow();
+        if (mainWindow) mainWindow.webContents.send("user-data-updated");
+        console.log(
+          `[NotificationService] Catch-up: purged ${removed} stale read-status entry(ies).`,
+        );
+      } else {
+        console.log(
+          "[NotificationService] Catch-up: readRepacks already clean.",
+        );
+      }
+    } catch (err: any) {
+      console.error(
+        "[NotificationService] Catch-up failed:",
+        err.message,
+        err.status ? `(HTTP ${err.status})` : "",
+        err.data ? JSON.stringify(err.data) : "",
+      );
+    }
+  }
+
+  private async purgeFromReadRepacks(repackId: string): Promise<void> {
+    try {
+      const data = await userDataService.getData();
+      const before = data.readRepacks.length;
+      const cleaned = data.readRepacks.filter((id) => id !== repackId);
+
+      if (cleaned.length === before) return; // wasn't in the list, nothing to do
+
+      await userDataService.setData("readRepacks", cleaned);
+
+      // Notify the renderer so unread indicators update immediately
+      const mainWindow = getMainWindow();
+      if (mainWindow) {
+        mainWindow.webContents.send("user-data-updated");
+      }
+
+      console.log(
+        `[NotificationService] Purged new repack "${repackId}" from readRepacks (${before} → ${cleaned.length})`,
+      );
+    } catch (err: any) {
+      console.error(
+        "[NotificationService] Failed to purge readRepacks:",
+        err.message,
+      );
     }
   }
 

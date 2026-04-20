@@ -1,202 +1,247 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-    <meta charset="UTF-8">
+  <head>
+    <meta charset="UTF-8" />
     <title>Loading FitGirl Repacks Manager</title>
     <style>
-        :root {
-            --primary: #4dabf7;
-            --secondary: #ff006e;
-            --bg: #08090a;
-            --accent: rgba(77, 171, 247, 0.15);
-        }
+      :root {
+        --primary: #4dabf7;
+        --secondary: #ff006e;
+        --bg: #08090a;
+        --accent: rgba(77, 171, 247, 0.15);
+      }
 
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--bg);
-            color: white;
-            font-family: 'Inter', 'Segoe UI', Roboto, sans-serif;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            overflow: hidden;
-            -webkit-app-region: drag;
-        }
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg);
+        color: white;
+        font-family: "Inter", "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+        -webkit-app-region: drag;
+      }
 
-        /* Abstract Background Glows */
-        .bg-glow {
-            position: absolute;
-            width: 300px;
-            height: 300px;
-            border-radius: 50%;
-            background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
-            filter: blur(60px);
-            z-index: -1;
-            pointer-events: none;
-            opacity: 0.5;
-        }
+      /* Abstract Background Glows */
+      .bg-glow {
+        position: absolute;
+        width: 300px;
+        height: 300px;
+        border-radius: 50%;
+        background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+        filter: blur(60px);
+        z-index: -1;
+        pointer-events: none;
+        opacity: 0.5;
+      }
 
-        .glow-1 { top: -50px; left: -50px; animation: float 10s infinite alternate; }
-        .glow-2 { bottom: -50px; right: -50px; animation: float 12s infinite alternate-reverse; }
+      .glow-1 {
+        top: -50px;
+        left: -50px;
+        animation: float 10s infinite alternate;
+      }
+      .glow-2 {
+        bottom: -50px;
+        right: -50px;
+        animation: float 12s infinite alternate-reverse;
+      }
 
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 32px;
-            z-index: 10;
-        }
+      .container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 32px;
+        z-index: 10;
+      }
 
-        .logo-wrapper {
-            position: relative;
-            width: 160px;
-            height: 160px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            animation: fadeInScale 1s cubic-bezier(0.22, 1, 0.36, 1);
-        }
+      .logo-wrapper {
+        position: relative;
+        width: 160px;
+        height: 160px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        animation: fadeInScale 1s cubic-bezier(0.22, 1, 0.36, 1);
+      }
 
-        .logo-glow {
-            position: absolute;
-            width: 140px;
-            height: 140px;
-            background: var(--primary);
-            filter: blur(40px);
-            border-radius: 50%;
-            opacity: 0.2;
-            animation: pulseGlow 3s infinite ease-in-out;
-        }
+      .logo-glow {
+        position: absolute;
+        width: 140px;
+        height: 140px;
+        background: var(--primary);
+        filter: blur(40px);
+        border-radius: 50%;
+        opacity: 0.2;
+        animation: pulseGlow 3s infinite ease-in-out;
+      }
 
-        .logo {
-            position: relative;
-            width: 100px;
-            height: 100px;
-            background: url('app_icon.png') no-repeat center;
-            background-size: contain;
-            filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5));
-            animation: floatLogo 6s infinite ease-in-out;
-            z-index: 2;
-        }
+      .logo {
+        position: relative;
+        width: 100px;
+        height: 100px;
+        background: url("app_icon.png") no-repeat center;
+        background-size: contain;
+        filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.5));
+        animation: floatLogo 6s infinite ease-in-out;
+        z-index: 2;
+      }
 
-        .content {
-            text-align: center;
-            animation: fadeIn 1s ease-out 0.3s both;
-        }
+      .content {
+        text-align: center;
+        animation: fadeIn 1s ease-out 0.3s both;
+      }
 
-        .title {
-            font-size: 18px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-            color: white;
-            margin-bottom: 8px;
-        }
+      .title {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        color: white;
+        margin-bottom: 8px;
+      }
 
-        .subtitle {
-            font-size: 13px;
-            font-weight: 500;
-            color: #636e72;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
+      .subtitle {
+        font-size: 13px;
+        font-weight: 500;
+        color: #636e72;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+      }
 
-        /* Modern Line Loader */
-        .loader-track {
-            width: 200px;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            overflow: hidden;
-            margin-top: 24px;
-            position: relative;
-        }
+      /* Modern Line Loader */
+      .loader-track {
+        width: 200px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        overflow: hidden;
+        margin-top: 24px;
+        position: relative;
+      }
 
-        .loader-bar {
-            position: absolute;
-            width: 40%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, var(--primary), transparent);
-            border-radius: 10px;
-            animation: slideLoader 1.5s infinite ease-in-out;
-        }
+      .loader-bar {
+        position: absolute;
+        width: 40%;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--primary),
+          transparent
+        );
+        border-radius: 10px;
+        animation: slideLoader 1.5s infinite ease-in-out;
+      }
 
-        .version {
-            position: fixed;
-            bottom: 24px;
-            font-size: 11px;
-            font-weight: 600;
-            color: #2d3436;
-            background: rgba(255, 255, 255, 0.03);
-            padding: 4px 12px;
-            border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            animation: fadeIn 1s ease-out 0.6s both;
-        }
+      .version {
+        position: fixed;
+        bottom: 24px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #2d3436;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 4px 12px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        animation: fadeIn 1s ease-out 0.6s both;
+      }
 
-        /* Animations */
-        @keyframes slideLoader {
-            0% { transform: translateX(-150%); }
-            100% { transform: translateX(250%); }
+      /* Animations */
+      @keyframes slideLoader {
+        0% {
+          transform: translateX(-150%);
         }
+        100% {
+          transform: translateX(250%);
+        }
+      }
 
-        @keyframes fadeInScale {
-            0% { opacity: 0; transform: scale(0.8); }
-            100% { opacity: 1; transform: scale(1); }
+      @keyframes fadeInScale {
+        0% {
+          opacity: 0;
+          transform: scale(0.8);
         }
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
         }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
 
-        @keyframes float {
-            0% { transform: translate(0, 0); }
-            100% { transform: translate(40px, 40px); }
+      @keyframes float {
+        0% {
+          transform: translate(0, 0);
         }
+        100% {
+          transform: translate(40px, 40px);
+        }
+      }
 
-        @keyframes floatLogo {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
+      @keyframes floatLogo {
+        0%,
+        100% {
+          transform: translateY(0);
         }
+        50% {
+          transform: translateY(-10px);
+        }
+      }
 
-        @keyframes pulseGlow {
-            0%, 100% { opacity: 0.15; transform: scale(1); }
-            50% { opacity: 0.3; transform: scale(1.1); }
+      @keyframes pulseGlow {
+        0%,
+        100% {
+          opacity: 0.15;
+          transform: scale(1);
         }
+        50% {
+          opacity: 0.3;
+          transform: scale(1.1);
+        }
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="bg-glow glow-1"></div>
     <div class="bg-glow glow-2"></div>
 
     <div class="container">
-        <div class="logo-wrapper">
-            <div class="logo-glow"></div>
-            <div class="logo"></div>
+      <div class="logo-wrapper">
+        <div class="logo-glow"></div>
+        <div class="logo"></div>
+      </div>
+
+      <div class="content">
+        <div class="title">FitGirl Repacks Manager</div>
+        <div class="subtitle">Initializing Services</div>
+
+        <div class="loader-track">
+          <div class="loader-bar"></div>
         </div>
-        
-        <div class="content">
-            <div class="title">FitGirl Repacks Manager</div>
-            <div class="subtitle">Initializing Services</div>
-            
-            <div class="loader-track">
-                <div class="loader-bar"></div>
-            </div>
-        </div>
+      </div>
     </div>
 
     <div id="version" class="version">v0.0.0</div>
 
     <script>
-        // Extract version from query parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        const version = urlParams.get('version');
-        if (version) {
-            document.getElementById('version').textContent = 'v' + version;
-        }
+      // Extract version from query parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const version = urlParams.get("version");
+      if (version) {
+        document.getElementById("version").textContent = "v" + version;
+      }
     </script>
-</body>
+  </body>
 </html>

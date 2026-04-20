@@ -258,7 +258,7 @@ export function AppLayoutShell({ children }: { children: React.ReactNode }) {
             }}
           >
             {/* User Account Section */}
-            <UserAccountSection />
+            {isClient && <UserAccountSection />}
 
             <ActionIcon
               variant="light"
@@ -625,7 +625,6 @@ function UserAccountSection() {
   const [authModalOpened, { open, close }] = useDisclosure();
   const { user, logout, isPasswordRecovery } = useAuth();
   const { syncing, sync } = useSync();
-  const router = useRouter();
 
   React.useEffect(() => {
     if (isPasswordRecovery) {

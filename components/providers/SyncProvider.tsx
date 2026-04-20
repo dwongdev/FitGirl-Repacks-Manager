@@ -80,7 +80,6 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         repackIgdbMapping: localData.repackIgdbMapping || {},
         virtualGames: localData.virtualGames || {},
         gamePaths: localData.gamePaths || {},
-        ds4Path: localData.ds4Path || "",
         gameDs4Settings: localData.gameDs4Settings || {},
         playTime: localData.playTime || {},
         lastPlayedTimestamps: localData.lastPlayedTimestamps || {},
