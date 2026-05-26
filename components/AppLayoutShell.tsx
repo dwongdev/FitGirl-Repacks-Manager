@@ -46,7 +46,6 @@ import { SmoothScrollProvider } from "./providers/SmoothScroll";
 import { FeedbackModal } from "./FeedbackModal";
 import { IconMessageHeart } from "@tabler/icons-react";
 
-
 export function AppLayoutShell({ children }: { children: React.ReactNode }) {
   const [opened, { toggle }] = useDisclosure();
   const [viewport, setViewport] = React.useState<HTMLDivElement | null>(null);
@@ -58,7 +57,6 @@ export function AppLayoutShell({ children }: { children: React.ReactNode }) {
   const [feedbackOpened, { open: openFeedback, close: closeFeedback }] =
     useDisclosure();
   const router = useRouter();
-
 
   const handleMinimize = () => (window as any).electron?.minimize();
   const handleMaximize = () => (window as any).electron?.maximize();
@@ -222,7 +220,6 @@ export function AppLayoutShell({ children }: { children: React.ReactNode }) {
             >
               <IconMessageHeart size={20} />
             </ActionIcon>
-
 
             {hasUpdateAvailable && (
               <Box pos="relative" style={{ WebkitAppRegion: "no-drag" as any }}>
@@ -534,7 +531,6 @@ export function AppLayoutShell({ children }: { children: React.ReactNode }) {
       )}
       <FeedbackModal opened={feedbackOpened} onClose={closeFeedback} />
     </AppShell>
-
   );
 }
 

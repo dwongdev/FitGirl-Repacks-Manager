@@ -187,7 +187,6 @@ export default function LibraryPage() {
   return (
     <Box
       style={{
-        height: "100vh",
         background:
           "linear-gradient(180deg, rgba(2,6,23,0) 0%, rgba(2,6,23,0.8) 100%)",
       }}
