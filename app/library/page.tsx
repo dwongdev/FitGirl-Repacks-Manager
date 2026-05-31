@@ -43,7 +43,7 @@ export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [includedFilters, setIncludedFilters] = useState<string[]>(["playing"]);
   const [sortMode, setSortMode] = useState<
-    "name" | "release_date" | "last_played"
+    "name" | "release_date" | "last_played" | "playtime"
   >("last_played");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [metadatas, setMetadatas] = useState<Record<number, Game>>({});
@@ -161,6 +161,10 @@ export default function LibraryPage() {
         const ta = userData?.lastPlayedTimestamps?.[a.id] ?? 0;
         const tb = userData?.lastPlayedTimestamps?.[b.id] ?? 0;
         result = ta - tb;
+      } else if (sortMode === "playtime") {
+        const pa = playTime[a.id] ?? 0;
+        const pb = playTime[b.id] ?? 0;
+        result = pa - pb;
       }
       return sortOrder === "asc" ? result : -result;
     });
@@ -253,6 +257,7 @@ export default function LibraryPage() {
                 >
                   {[
                     { label: "Recent", value: "last_played" },
+                    { label: "Playtime", value: "playtime" },
                     { label: "Release", value: "release_date" },
                     { label: "Name", value: "name" },
                   ].map((s) => (

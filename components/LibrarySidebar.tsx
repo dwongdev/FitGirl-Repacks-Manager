@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Group,
   Stack,
@@ -42,7 +42,7 @@ import { IgdbService, Game } from "../lib/igdb";
 import { useUserData } from "../lib/useUserData";
 import { useOnlineStatus } from "../lib/useOnlineStatus";
 
-type SortMode = "release_date" | "name" | "date_added" | "last_played";
+type SortMode = "release_date" | "name" | "date_added" | "last_played" | "playtime";
 
 interface LibrarySidebarProps {
   isCollapsed?: boolean;
@@ -67,6 +67,8 @@ export function LibrarySidebar({
   const [activeDownloads, setActiveDownloads] = useState<Record<string, any>>(
     {},
   );
+  const [runningGameId, setRunningGameId] = useState<number | null>(null);
+  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [metadatas, setMetadatas] = useState<Record<number, Game>>({});
   const [loading, setLoading] = useState(true);
@@ -151,6 +153,25 @@ export function LibrarySidebar({
     return unsub;
   }, []);
 
+  useEffect(() => {
+    window.electron.getActiveGame().then((id: any) => {
+      if (id) setRunningGameId(Number(id));
+    });
+
+    const unsub = window.electron.onGameStatusUpdated((status: any) => {
+      if (status.running && status.gameId) {
+        setRunningGameId(Number(status.gameId));
+      } else {
+        setRunningGameId(null);
+      }
+    });
+
+    return () => {
+      unsub();
+      if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+    };
+  }, []);
+
   const formatSize = (bytes: number) => {
     if (!bytes) return "0 B";
     const k = 1024;
@@ -206,6 +227,10 @@ export function LibrarySidebar({
         const ta = userData?.lastPlayedTimestamps?.[a.id] || 0;
         const tb = userData?.lastPlayedTimestamps?.[b.id] || 0;
         result = ta - tb;
+      } else if (sortMode === "playtime") {
+        const pa = userData?.playTime?.[a.id] || 0;
+        const pb = userData?.playTime?.[b.id] || 0;
+        result = pa - pb;
       } else if (sortMode === "name") {
         result = a.name.localeCompare(b.name);
       } else if (sortMode === "date_added") {
@@ -237,7 +262,24 @@ export function LibrarySidebar({
   ]);
 
   const handleCardClick = (id: number) => {
-    router.push(`/?gameId=${id}`);
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    clickTimeoutRef.current = setTimeout(() => {
+      router.push(`/?gameId=${id}`);
+      clickTimeoutRef.current = null;
+    }, 250);
+  };
+
+  const handleCardDoubleClick = (id: number) => {
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    if (gamePaths[id]) {
+      window.electron.launchGame(gamePaths[id]);
+    }
   };
 
   return (
@@ -444,6 +486,7 @@ export function LibrarySidebar({
                   onChange={(val) => setSortMode(val as SortMode)}
                   data={[
                     { label: "Last Played", value: "last_played" },
+                    { label: "Playtime", value: "playtime" },
                     { label: "Name", value: "name" },
                     { label: "Date Added", value: "date_added" },
                     { label: "Release Date", value: "release_date" },
@@ -533,11 +576,13 @@ export function LibrarySidebar({
             <Stack gap={4} align={isCollapsed ? "center" : "stretch"}>
               {allItems.map((game) => {
                 const isSelected = selectedGameId === game.id;
+                const isRunning = runningGameId === game.id;
                 if (isCollapsed) {
                   return (
                     <Tooltip key={game.id} label={game.name} position="right">
                       <Box
                         onClick={() => handleCardClick(game.id)}
+                        onDoubleClick={() => handleCardDoubleClick(game.id)}
                         style={{
                           cursor: "pointer",
                           borderRadius: "8px",
@@ -547,8 +592,14 @@ export function LibrarySidebar({
                           flexShrink: 0,
                           backgroundColor: isSelected
                             ? "var(--mantine-color-blue-filled)"
-                            : "#2C2E33",
-                          border: isSelected ? "none" : "1px solid transparent",
+                            : isRunning
+                              ? "rgba(47, 158, 68, 0.2)"
+                              : "#2C2E33",
+                          border: isSelected
+                            ? "none"
+                            : isRunning
+                              ? "1px solid var(--mantine-color-green-filled)"
+                              : "1px solid transparent",
                           transition: "all 0.2s ease",
                         }}
                       >
@@ -575,15 +626,22 @@ export function LibrarySidebar({
                   <Box
                     key={game.id}
                     onClick={() => handleCardClick(game.id)}
+                    onDoubleClick={() => handleCardDoubleClick(game.id)}
                     p="xs"
                     style={{
                       cursor: "pointer",
                       borderRadius: "8px",
                       backgroundColor: isSelected
                         ? "var(--mantine-color-blue-filled)"
-                        : "transparent",
+                        : isRunning
+                          ? "rgba(47, 158, 68, 0.2)"
+                          : "transparent",
                       transition: "background-color 0.2s ease",
-                      border: isSelected ? "none" : "1px solid transparent",
+                      border: isSelected
+                        ? "none"
+                        : isRunning
+                          ? "1px solid var(--mantine-color-green-filled)"
+                          : "1px solid transparent",
                     }}
                     className={!isSelected ? "repack-card-lite" : ""}
                   >

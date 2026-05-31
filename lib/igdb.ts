@@ -90,6 +90,8 @@ declare global {
       getMapGeniePreload: () => Promise<string>;
       openExternal: (url: string) => Promise<void>;
       launchGame: (exePath: string) => Promise<boolean>;
+      getActiveGame: () => Promise<string | null>;
+      onGameStatusUpdated: (callback: (status: any) => void) => () => void;
     };
   }
 }
@@ -361,12 +363,42 @@ export const IgdbService = {
   },
 
   getGameDetails: async (id: number) => {
+    try {
+      if (typeof window !== "undefined" && window.electron) {
+        const cache = await window.electron.getUserData("igdbDetailsCache") || {};
+        if (cache[id]) {
+          console.log("[IGDB Cache] Hit for game id:", id);
+          return cache[id];
+        }
+      }
+    } catch (e) {
+      console.error("[IGDB Cache] Read error:", e);
+    }
+
     const query = `
       fields name, summary, storyline, cover.image_id, cover.url, screenshots.image_id, screenshots.url, videos.video_id, videos.name, first_release_date, total_rating, total_rating_count, genres.name, platforms.name;
       where id = ${id};
     `;
-    const result = await igdbFetch("games", query);
-    return IgdbService.normalizeUrls(result[0] || result);
+
+    try {
+      const result = await igdbFetch("games", query);
+      const normalized = IgdbService.normalizeUrls(result[0] || result);
+      if (normalized && typeof window !== "undefined" && window.electron) {
+        const cache = await window.electron.getUserData("igdbDetailsCache") || {};
+        cache[id] = normalized;
+        await window.electron.setUserData("igdbDetailsCache", cache);
+      }
+      return normalized;
+    } catch (error) {
+      console.error("[IGDB Fetch] Error, trying fallback", error);
+      if (typeof window !== "undefined" && window.electron) {
+        const fallbackCache = await window.electron.getUserData("igdbCache") || {};
+        if (fallbackCache[id]) {
+          return fallbackCache[id];
+        }
+      }
+      throw error;
+    }
   },
 
   getGamesByIds: async (ids: number[]) => {
